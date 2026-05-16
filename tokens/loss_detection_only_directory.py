@@ -52,7 +52,7 @@ from model_library import get_model
 # =================================================================================================
 # CONFIGURATION PAR DÉFAUT
 # =================================================================================================
-DEFAULT_DETECTION_CHECKPOINT_PATH = "best_model_detection.pkl"
+DEFAULT_DETECTION_CHECKPOINT_PATH = "best_model_detectionv2.pkl"
 DEFAULT_DETECTION_IMAGE_SIZE = (224, 224)
 DEFAULT_DETECTION_CONF_THRESHOLD = 0.7
 DEFAULT_BOX_AREA_MIN = 60
@@ -628,7 +628,7 @@ def print_metrics(metrics: Dict):
 # =================================================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Évaluer un modèle de DÉTECTION sur un dataset")
-    parser.add_argument("--input_dir", type=str, required=True, 
+    parser.add_argument("--input_dir", type=str, default='./tmp_test',
                         help="Dossier contenant les images et les JSON ground truth")
     parser.add_argument("--detection_checkpoint_path", type=str, default=DEFAULT_DETECTION_CHECKPOINT_PATH,
                         help="Chemin vers le modèle de détection")

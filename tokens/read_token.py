@@ -2,7 +2,7 @@ from flax.traverse_util import flatten_dict
 import pickle
 import jax.numpy as jnp
 
-with open("best_model_detection.pkl", "rb") as f:
+with open("../best_model_detection.pkl", "rb") as f:
     checkpoint = pickle.load(f)
 
 print(checkpoint.keys())
@@ -57,10 +57,6 @@ def get_unique_filename(tokens):
     tokens_bytes = tokens.tobytes()
     hash_object = hashlib.sha256(tokens_bytes)
     return f"tokens_{hash_object.hexdigest()}.npy"
-
-# Sauvegarder le tableau
-# Exemple de tableau
-#tokens = np.random.rand(1, 16, 256).astype(np.float32)
 
 # Générer un nom de fichier unique
 filename = get_unique_filename(tokens)
