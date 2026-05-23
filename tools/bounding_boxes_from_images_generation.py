@@ -9,8 +9,8 @@ from tqdm import tqdm
 # Charger YOLOv8
 model = YOLO("yolov8n.pt")
 
-input_dir = "/home/aobled/Downloads/Aircraft_DATASET/test/a_faire/c5"
-category_name = 'c5'
+input_dir = "/home/aobled/Downloads/tmp_multi"
+category_name = 'unknown'
 
 # Récupérer la liste de toutes les images
 image_files = []

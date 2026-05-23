@@ -152,6 +152,21 @@ class ChunkManager:
                         img = tf.expand_dims(img, axis=0)
                         img = data_augmentation(img)
                         img = tf.squeeze(img, axis=0)
+                        
+                        # --- Augmentation Custom : Pixelation ---
+                        pixelation_factor = augmentation_params.get("pixelation_factor", 0.0)
+                        if pixelation_factor > 0.0:
+                            do_pixelate = tf.random.uniform([]) > 0.5
+                            def apply_pix(i):
+                                original_shape = tf.shape(i)[:2]
+                                random_factor = tf.random.uniform([], 2.0, tf.maximum(2.1, pixelation_factor))
+                                new_h = tf.cast(tf.cast(original_shape[0], tf.float32) / random_factor, tf.int32)
+                                new_w = tf.cast(tf.cast(original_shape[1], tf.float32) / random_factor, tf.int32)
+                                small = tf.image.resize(i, [new_h, new_w], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+                                return tf.image.resize(small, original_shape, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+                            
+                            img = tf.cond(do_pixelate, lambda: apply_pix(img), lambda: img)
+                        
                         img = tf.clip_by_value(img, 0.0, 1.0)
                         # ✅ CORRECTION: Convertir mean et std en Tensors TensorFlow
                         mean_tensor = tf.constant(mean, dtype=tf.float32)

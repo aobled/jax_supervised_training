@@ -53,7 +53,8 @@ DATASET_CONFIGS = {
             "zoom_factor": 0.10,          # Adouci (était 0.15)
             "translation_factor": 0.06,   # Divisé par 2 (0.12 -> 0.06) : Assez pour garder l'invariance anti-scintillement sans détruire la cible
             "brightness_delta": 0.10,
-            "contrast_factor": 0.10
+            "contrast_factor": 0.10,
+            "pixelation_factor": 4.0      # Simule un upscale depuis un tout petit crop
         },
         
         "mean": None,
@@ -86,7 +87,7 @@ DATASET_CONFIGS = {
         "patience": 5,
         "warmup_steps": 1200,      # Rendu explicite (était hérité du Trainer)
         "decay_steps": 6000,       # Le LR chute vite et stagne à 0 pour fine-tuning après ~15 epochs
-        "label_smoothing": 0.1,    # ✅ Aide légèrement
+        "label_smoothing": 0.15,    # ✅ Aide légèrement
         "mixup_alpha": 0.05,        # ✅ OPTIMAL: Mixup doux (meilleur compromis trouvé)
         
         # === Évaluation ===
