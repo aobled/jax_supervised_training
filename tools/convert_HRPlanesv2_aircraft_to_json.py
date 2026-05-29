@@ -10,8 +10,8 @@ from pathlib import Path
 from PIL import Image
 
 # Configuration (à adapter selon tes besoins)
-ORIGIN_DIRECTORY = "/home/aobled/Downloads/HRPlanesv2/"  # Répertoire contenant les images et annotations
-TARGET_DIRECTORY = "/home/aobled/Downloads/HRPlanesv2/json"
+ORIGIN_DIRECTORY = "/home/aobled/Downloads/tmp_test"  # Répertoire contenant les images et annotations
+TARGET_DIRECTORY = "/home/aobled/Downloads/tmp_test/json"
 
 def get_image_dimensions(image_path):
     """Obtient les dimensions d'une image"""

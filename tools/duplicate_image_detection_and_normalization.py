@@ -84,7 +84,7 @@ def process_duplicates(directory, duplicates):
 
 
 def process_all_files(directory):
-    for filename in os.listdir(directory):
+    for filename in tqdm.tqdm(os.listdir(directory)):
         if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
             filepath = os.path.join(directory, filename)
             try:
@@ -97,7 +97,6 @@ def process_all_files(directory):
                     
                     # On ne fait rien si le l'image est déjà normalisée
                     if (filename != new_image_name):
-                        print(">>>>>>>>>>>", filename, " ------- ", new_image_name)
                         os.rename(filepath, new_image_path)
     
                         base_name = filename.split('.')[0]
@@ -124,9 +123,7 @@ def process_all_files(directory):
 # Exemple d'utilisation
 threshold = 1
 
-
-directory = '/home/aobled/Downloads/tmp_viggen'
+directory = '/home/aobled/Downloads/tmp_multi/jpg'
 duplicates = find_duplicates_optimized(directory, threshold)
 process_duplicates(directory, duplicates)
 process_all_files(directory)
-

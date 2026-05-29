@@ -240,10 +240,10 @@ reporting_groupby_class_and_split(df)
 #reporting_groupby_box_count(df)
 #reporting_boxes_on_wrong_directory(df)
 
-#reporting_single_boxes_target_class_size(df, class_list=['harrier', 'hawk', 'su57', 'b1b', 'flanker', 'v22', 'alphajet', 'b52', 'b2', 'a4', 'hawkeye', 'mustang', 'f117', 'jaguar', 'c5', 'sr71', 'miragef1', 'spitfire'], target_size=2)
+#reporting_single_boxes_target_class_size(df, class_list=['harrier', 'hawk', 'su57', 'b1b', 'v22', 'alphajet', 'b52', 'b2', 'a4', 'hawkeye', 'mustang', 'f117', 'jaguar', 'c5', 'sr71', 'miragef1', 'spitfire'], target_size=64)
 #reporting_single_boxes_target_class_size(df, class_list=CLASS_NAMES, target_size=2)
 #reporting_at_least_one_box_not_in_class_list(df, class_list=CLASS_NAMES)
 
-#reporting_single_classe_images(df, target_class='b52', min_size=16)
-#reporting_all_images_in_class_list(df, class_list=['unknown'])
+#reporting_single_classe_images(df, target_class='a10', min_size=16)
+#reporting_all_images_in_class_list(df, class_list=['unknownflanker'])
 #reporting_small_boxes(df, min_size=16)

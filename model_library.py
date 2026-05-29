@@ -2323,6 +2323,60 @@ def create_aircraft_detector_unet(dropout_rate=0.2, **kwargs):
     """Factory for UNet Detector"""
     return AircraftDetectorUNet(dropout_rate=dropout_rate)
 
+def conv_block(features, dropout=0.0):
+    class Block(nn.Module):
+        @nn.compact
+        def __call__(self, x, training=True):
+            x = nn.Conv(features, (3, 3), padding="SAME")(x)
+            x = nn.BatchNorm(use_running_average=not training)(x)
+            x = nn.silu(x)
+            x = nn.Conv(features, (3, 3), padding="SAME")(x)
+            x = nn.BatchNorm(use_running_average=not training)(x)
+            x = nn.silu(x)
+            if dropout > 0:
+                x = nn.Dropout(dropout, deterministic=not training)(x)
+            return x
+    return Block()
+
+class MiniUNet(nn.Module):
+    base: int = 16
+    dropout_rate: float = 0.1
+
+    @nn.compact
+    def __call__(self, x, training=True):
+        x1 = conv_block(self.base, self.dropout_rate)(x, training)
+        p1 = nn.max_pool(x1, window_shape=(2, 2), strides=(2, 2))
+
+        x2 = conv_block(self.base * 2, self.dropout_rate)(p1, training)
+        p2 = nn.max_pool(x2, window_shape=(2, 2), strides=(2, 2))
+
+        x3 = conv_block(self.base * 4, self.dropout_rate)(p2, training)
+        p3 = nn.max_pool(x3, window_shape=(2, 2), strides=(2, 2))
+
+        b = conv_block(self.base * 8, self.dropout_rate)(p3, training)
+
+        u3 = jax.image.resize(b, (b.shape[0], x3.shape[1], x3.shape[2], b.shape[3]), method="bilinear")
+        u3 = nn.Conv(self.base * 4, (1, 1), padding="SAME")(u3)
+        u3 = jnp.concatenate([u3, x3], axis=-1)
+        u3 = conv_block(self.base * 4, self.dropout_rate)(u3, training)
+
+        u2 = jax.image.resize(u3, (u3.shape[0], x2.shape[1], x2.shape[2], u3.shape[3]), method="bilinear")
+        u2 = nn.Conv(self.base * 2, (1, 1), padding="SAME")(u2)
+        u2 = jnp.concatenate([u2, x2], axis=-1)
+        u2 = conv_block(self.base * 2, self.dropout_rate)(u2, training)
+
+        u1 = jax.image.resize(u2, (u2.shape[0], x1.shape[1], x1.shape[2], u2.shape[3]), method="bilinear")
+        u1 = nn.Conv(self.base, (1, 1), padding="SAME")(u1)
+        u1 = jnp.concatenate([u1, x1], axis=-1)
+        u1 = conv_block(self.base, self.dropout_rate)(u1, training)
+
+        out = nn.Conv(1, (1, 1), padding="SAME")(u1)
+        return nn.sigmoid(out)
+
+def create_aircraft_detector_miniunet(dropout_rate=0.2, **kwargs):
+    """Factory for UNet Detector"""
+    return MiniUNet(dropout_rate=dropout_rate)
+
 
 def create_aircraft_detector_unet_token(
     dropout_rate=0.2,
@@ -2402,6 +2456,7 @@ MODELS = {
     'aircraft_detector_v6_multilevel': create_aircraft_detector_v6_multilevel, # 🚀 V6 Dual-Scale (14x14, 7x7)
     'aircraft_detector_v7_advanced': create_aircraft_detector_v7_advanced, # 🚀 V7 Tri-Scale Anchor-Free
     'aircraft_detector_unet': create_aircraft_detector_unet, # 🚀 Semantic Segmentation U-Net
+    'aircraft_detector_miniunet': create_aircraft_detector_miniunet, # new mini unet
     'aircraft_detector_unet_token': create_aircraft_detector_unet_token, # 🚀 U-Net + bottleneck tokens
     'aircraft_detector_sophisticated_unet': create_aircraft_detector_sophisticated_unet, # 🚀 Semantic Segmentation Sophisticated U-Net
     'sophisticated_cnn': create_sophisticated_cnn,

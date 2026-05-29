@@ -1,14 +1,14 @@
 import os
 import pandas as pd
 
-def print_audit_report(csv_path="audit_classification_results.csv"):
+def print_audit_report(csv_path="audit_results.csv"):
     # Résoudre le chemin du fichier par rapport à l'emplacement du script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     full_csv_path = os.path.join(script_dir, csv_path)
     
     if not os.path.exists(full_csv_path):
         print(f"❌ Fichier non trouvé : {full_csv_path}")
-        print("Veuillez d'abord exécuter audit_classification_dataset.py pour générer les résultats.")
+        print("Veuillez d'abord exécuter audit_dataset.py pour générer les résultats.")
         return
         
     print(f"📂 Chargement des résultats depuis {csv_path}...\n")

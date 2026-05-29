@@ -17,7 +17,7 @@ from dataset_configs import get_dataset_config
 from model_library import get_model
 
 # --- Configuration ---
-DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/detection'
+DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/classification'
 CONFIG_NAME = "FIGHTERJET_CLASSIFICATION"
 BATCH_SIZE = 64
 
@@ -220,7 +220,7 @@ def run_audit():
     # --- Création du CSV et reporting Pandas ---
     print("\n💾 Export des résultats vers audit_classification_results.csv...")
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, "audit_classification_results.csv")
+    csv_path = os.path.join(script_dir, "audit_results.csv")
     
     df = pd.DataFrame(results)
     if len(df) == 0:
@@ -233,9 +233,9 @@ def run_audit():
     errors = len(df[df["status"] == "ERROR"])
     accuracy = ((total - errors) / total * 100) if total > 0 else 0
     
-    print(f"\n======================================")
-    print(f"📊 BILAN DE L'AUDIT DE CLASSIFICATION")
-    print(f"======================================")
+    print(f"\n==================")
+    print(f"📊 BILAN DE L'AUDIT")
+    print(f"====================")
     print(f"   Total analysé : {total} images (crops)")
     print(f"   Erreurs       : {errors}")
     print(f"   Précision     : {accuracy:.2f} %")
