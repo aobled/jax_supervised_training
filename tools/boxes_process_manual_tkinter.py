@@ -89,6 +89,7 @@ class PhotoViewer:
         self.clf_config = None
         self.dataset_mean = None
         self.dataset_std = None
+        self.last_predictions = []  # Stocke les prédictions JAX pour acceptation
 
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -247,7 +248,8 @@ class PhotoViewer:
             'l': self.fill_box_full_width,  # Ajout de l'action 'l'
             'n': self.add_new_box,  # Ajout de l'action 'n'
             'x': self.crop_bottom_zone,  # Ajout de l'action 'x' pour croper
-            'p': self.toggle_predictions # Inférence JAX
+            'p': self.toggle_predictions, # Inférence JAX
+            'a': self.accept_predictions # Accepter les prédictions JAX
         }
         if key in actions:
             actions[key]()
@@ -1151,6 +1153,7 @@ class PhotoViewer:
         )
         
         predicted_bboxes_x1y1x2y2 = []
+        self.last_predictions = []
         
         for i, box in enumerate(pred_boxes):
             conf, x, y, w, h = box
@@ -1163,6 +1166,7 @@ class PhotoViewer:
             cv2.putText(result_img, label, (x, max(0, y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             
             predicted_bboxes_x1y1x2y2.append([x, y, x+w, y+h])
+            self.last_predictions.append({"bbox": [x, y, w, h], "class_name": pred_class})
             
         # Calcul de l'IoU
         true_boxes_x1y1x2y2 = []
@@ -1210,6 +1214,59 @@ class PhotoViewer:
         
         self.root.title(f"{base_title} | [PREDICTION IA ACTVÉE] | IoU Moyen: {avg_iou:.2f}%")
         print(f"✅ Prédiction terminée. IoU: {avg_iou:.2f}%")
+
+    def accept_predictions(self):
+        if not self.show_predictions or not self.last_predictions:
+            print("⚠️ Aucune prédiction à accepter.")
+            return
+            
+        print("✅ Acceptation des prédictions IA...")
+        
+        # 1. Supprimer les JSON existants pour cette image
+        current_image_name = self.image_manager.image_list[self.image_manager.current_image_index]
+        base_name = os.path.splitext(current_image_name)[0]
+        
+        bbox_files = [f for f in os.listdir(self.image_manager.root_folder) if f.startswith(base_name) and f.endswith('.json')]
+        for bbox_file in bbox_files:
+            try:
+                os.remove(os.path.join(self.image_manager.root_folder, bbox_file))
+            except Exception as e:
+                print(f"Erreur suppression {bbox_file}: {e}")
+                
+        self.deleted_bboxes = set()
+        
+        # 2. Sauvegarder les nouvelles prédictions
+        image_width, image_height = self.original_image.size
+        
+        for i, pred in enumerate(self.last_predictions):
+            x, y, w, h = pred["bbox"]
+            pred_class = pred["class_name"]
+            
+            new_json_name = f"{base_name}_{i}.json"
+            new_json_path = os.path.join(self.image_manager.root_folder, new_json_name)
+            
+            data = {
+                "image": {
+                    "file_name": current_image_name,
+                    "width": image_width,
+                    "height": image_height
+                },
+                "annotation": {
+                    "file_name": current_image_name,
+                    "bbox": [float(x), float(y), float(w), float(h)],
+                    "category_name": pred_class,
+                    "bbox_id": i
+                }
+            }
+            self.save_json_with_consistency_check(new_json_path, data)
+            
+        # 3. Quitter le mode prédiction pour revenir au mode Tkinter standard
+        self.show_predictions = False
+        self.last_predictions = []
+        self.load_image()
+        self.draw_bounding_boxes()
+        self.draw_crop_zone()
+        self.update_window_color_from_current_image()
 
     def quit_app(self):
         self.root.destroy()
