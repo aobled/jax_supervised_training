@@ -1108,13 +1108,12 @@ class PhotoViewer:
         img_h, img_w = cv_img.shape[:2]
         
         for box in pred_boxes:
-            conf, x, y, w, h = box
-            x, y, w, h = int(x), int(y), int(w), int(h)
+            x1, y1, x2, y2, conf = box
             
-            x_start = max(0, x)
-            y_start = max(0, y)
-            x_end = min(img_w, x + w)
-            y_end = min(img_h, y + h)
+            x_start = max(0, int(x1))
+            y_start = max(0, int(y1))
+            x_end = min(img_w, int(x2))
+            y_end = min(img_h, int(y2))
             
             if x_end > x_start and y_end > y_start:
                 crop = cv_img[y_start:y_end, x_start:x_end]
@@ -1151,7 +1150,7 @@ class PhotoViewer:
             0
         )
         
-        predicted_bboxes_xywh = []
+        predicted_bboxes_x1y1x2y2 = []
         
         for i, box in enumerate(pred_boxes):
             conf, x, y, w, h = box
@@ -1163,23 +1162,25 @@ class PhotoViewer:
             label = f"{pred_class} ({100*pred_conf:.0f}%)"
             cv2.putText(result_img, label, (x, max(0, y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             
-            predicted_bboxes_xywh.append([x, y, w, h])
+            predicted_bboxes_x1y1x2y2.append([x, y, x+w, y+h])
             
         # Calcul de l'IoU
-        true_boxes_xywh = []
+        true_boxes_x1y1x2y2 = []
         for (x1_z, y1_z, x2_z, y2_z) in self.bbox_coords:
-            x = x1_z / self.image_manager.zoom_factor
-            y = y1_z / self.image_manager.zoom_factor
-            w = (x2_z - x1_z) / self.image_manager.zoom_factor
-            h = (y2_z - y1_z) / self.image_manager.zoom_factor
-            true_boxes_xywh.append([x, y, w, h])
+            x1 = x1_z / self.image_manager.zoom_factor
+            y1 = y1_z / self.image_manager.zoom_factor
+            x2 = x2_z / self.image_manager.zoom_factor
+            y2 = y2_z / self.image_manager.zoom_factor
+            true_boxes_x1y1x2y2.append([x1, y1, x2, y2])
             
         total_iou = 0.0
         matches = 0
         
-        for true_box in true_boxes_xywh:
+        for true_box in true_boxes_x1y1x2y2:
             best_iou = 0.0
-            for pred_box in predicted_bboxes_xywh:
+            print(">>>> True: ", true_box)
+            for pred_box in predicted_bboxes_x1y1x2y2:
+                print(">>>> Pred: ", pred_box)
                 iou = get_iou(true_box, pred_box)
                 if iou > best_iou:
                     best_iou = iou
