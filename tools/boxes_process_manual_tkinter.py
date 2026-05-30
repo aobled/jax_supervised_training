@@ -1182,9 +1182,7 @@ class PhotoViewer:
         
         for true_box in true_boxes_x1y1x2y2:
             best_iou = 0.0
-            print(">>>> True: ", true_box)
             for pred_box in predicted_bboxes_x1y1x2y2:
-                print(">>>> Pred: ", pred_box)
                 iou = get_iou(true_box, pred_box)
                 if iou > best_iou:
                     best_iou = iou
