@@ -350,7 +350,7 @@ DATASET_CONFIGS = {
         "vis_freq": 5,
         
         # === Sauvegarde ===
-        "checkpoint_path": "./checkpoints_detection",
+        "checkpoint_path": "best_model_detection.pkl",
         "save_dir": "./checkpoints_detection",
     },
     

@@ -18,7 +18,7 @@ from bounding_boxes_with_classification_from_video_generation import (
 )
 
 # --- Configuration ---
-DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/detection'
+DATASET_PATH = '/home/aobled/Downloads/tmp_multi/'
 CONFIG_NAME = "FIGHTERJET_DETECTION"
 BATCH_SIZE = 32
 DETECTION_CONF_THRESHOLD = 0.3
@@ -33,12 +33,10 @@ def load_detection_audit_model(config):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(script_dir)
     checkpoint_path_abs = os.path.join(parent_dir, checkpoint_path)
-    
     if not os.path.exists(checkpoint_path_abs):
         raise FileNotFoundError(f"Modèle de détection introuvable : {checkpoint_path_abs}")
         
     print(f"📦 Chargement du modèle de détection depuis {checkpoint_path_abs}...")
-    
     det_model, det_vars, det_config = load_detection_model(checkpoint_path_abs)
     
     # Compilation JIT
@@ -154,8 +152,7 @@ def run_audit():
         image_batch.clear()
         meta_batch.clear()
 
-    print("
-🔍 Début du scan du dataset de détection...")
+    print("🔍 Début du scan du dataset de détection...")
     for split in ["train", "val"]:
         split_dir = os.path.join(DATASET_PATH, split)
         if not os.path.exists(split_dir):
@@ -246,8 +243,7 @@ def run_audit():
     flush_batch()
     
     # --- Création du CSV et reporting Pandas ---
-    print("
-💾 Export des résultats vers audit_detection_results.csv...")
+    print("💾 Export des résultats vers audit_detection_results.csv...")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "audit_detection_results.csv")
     
@@ -262,29 +258,25 @@ def run_audit():
     poor_iou = len(df[df["status"] == "POOR"])
     avg_iou = df["mean_iou"].mean() * 100
     
-    print("
-==================")
+    print("==================")
     print("📊 BILAN DE L'AUDIT DÉTECTION")
     print("====================")
     print(f"   Total analysé : {total} images")
     print(f"   IoU Moyen    : {avg_iou:.2f} %")
     print(f"   Images POOR (IoU < 0.5) : {poor_iou}")
     
-    print("
-   Répartition de l'IoU par split :")
+    print("   Répartition de l'IoU par split :")
     split_iou = df.groupby('split')['mean_iou'].mean() * 100
     for s, iou in split_iou.items():
         print(f"     - {s.upper()} : {iou:.2f} %")
     
     if poor_iou > 0:
-        print("
-⚠️ TOP 20 PIRES IMAGES (IoU le plus bas) :")
+        print("⚠️ TOP 20 PIRES IMAGES (IoU le plus bas) :")
         worst = df.sort_values(by="mean_iou", ascending=True).head(20)
         print(worst[["image_name", "split", "num_true_boxes", "num_pred_boxes", "mean_iou"]].to_string(index=False))
     
     if len(df) > 0:
-        print("
-✅ MEILLEURES IMAGES (IoU le plus élevé) :")
+        print("✅ MEILLEURES IMAGES (IoU le plus élevé) :")
         best = df.sort_values(by="mean_iou", ascending=False).head(10)
         print(best[["image_name", "split", "num_true_boxes", "num_pred_boxes", "mean_iou"]].to_string(index=False))
 
