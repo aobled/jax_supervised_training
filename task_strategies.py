@@ -75,10 +75,13 @@ class TaskStrategy(ABC):
         pass
 
 class ClassificationStrategy(TaskStrategy):
-    def __init__(self, num_classes: int, label_smoothing: float = 0.0, mixup_alpha: float = 0.0):
+    def __init__(self, num_classes: int, label_smoothing: float = 0.0, mixup_alpha: float = 0.0, loss_method: str = "cross_entropy", loss_params: dict = None):
         self.num_classes = num_classes
         self.label_smoothing = label_smoothing
         self.mixup_alpha = mixup_alpha
+        self.loss_method = loss_method
+        self.loss_params = loss_params or {}
+
 
     @property
     def primary_metric_name(self) -> str:
@@ -153,6 +156,10 @@ class ClassificationStrategy(TaskStrategy):
 
 
 class DetectionStrategy(TaskStrategy):
+    def __init__(self, loss_method: str = "segmentation", loss_params: dict = None):
+        self.loss_method = loss_method
+        self.loss_params = loss_params or {}
+
     @property
     def primary_metric_name(self) -> str:
         return "IoU"
@@ -172,9 +179,17 @@ class DetectionStrategy(TaskStrategy):
         return images, targets, False
         
     def compute_loss(self, outputs, targets, **kwargs):
-        # outputs = (B, H, W, 1)
-        # targets = (B, H, W, 1)
-        return compute_segmentation_loss(outputs, targets)
+        if self.loss_method == "segmentation":
+            return compute_segmentation_loss(outputs, targets, **self.loss_params)
+        elif self.loss_method == "grid":
+            return compute_grid_loss(outputs, targets, **self.loss_params)
+        elif self.loss_method == "grid_multilevel":
+            return compute_grid_loss_multilevel(outputs, targets, **self.loss_params)
+        elif self.loss_method == "v7":
+            return compute_v7_loss(outputs, targets, **self.loss_params)
+        else:
+            raise ValueError(f"Méthode de loss '{self.loss_method}' non supportée pour la détection.")
+
         
         
     def compute_metrics(self, outputs, targets):
@@ -230,8 +245,11 @@ class DetectionStrategy(TaskStrategy):
             print(f"❌ Erreur lors de la visualisation sémantique: {e}")
 
 class KeplerStrategy(TaskStrategy):
-    def __init__(self, num_classes: int):
+    def __init__(self, num_classes: int, loss_method: str = "cross_entropy", loss_params: dict = None):
         self.num_classes = num_classes
+        self.loss_method = loss_method
+        self.loss_params = loss_params or {}
+
 
     @property
     def primary_metric_name(self) -> str:

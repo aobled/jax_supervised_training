@@ -1100,7 +1100,7 @@ class PhotoViewer:
             [cv_img], 
             self.det_predict_fn, self.det_config, 
             conf_threshold=0.3,
-            box_aera_min=225
+            box_aera_min=25
         )
         
         pred_boxes, target_heatmap, target_binary_mask = batch_results[0]
@@ -1274,7 +1274,7 @@ CROP_HEIGHT = 0  # Hauteur en pixels à croper (0 = désactivé)
 AUTO_CROP = False  # Croper automatiquement lors de la sauvegarde (touche 's')
 CATEGORY_NAME = 'unknown'
 if __name__ == "__main__":
-    root_folder = "/home/aobled/Downloads/tmp_multi/train"
+    root_folder = "/home/aobled/Downloads/tmp_multi"
     viewer = PhotoViewer(root_folder, category_name=CATEGORY_NAME, crop_height=CROP_HEIGHT, auto_crop=AUTO_CROP)
 
 

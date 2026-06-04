@@ -140,6 +140,24 @@ def reporting_single_boxes_target_class_size(df, class_list, target_size):
     print(single_box_target[COLUMNS])
     single_box_target[COLUMNS].to_csv("search_single_class.csv", index=False)
 
+#  images avec unqiuement des boxes de la classe TRAGET_CLASS et taille TARGET_SIZE
+def reporting_boxes_target_class_size(df, class_list, target_size):
+    COLUMNS = ['base_image_name', 'box_class', 'directory', 'split']
+    TARGET_SIZE = target_size
+
+    # Masque : box dans class_list ET taille > TARGET_SIZE
+    mask = (
+        df['box_class'].isin(class_list) &
+        (df['box_l'] > TARGET_SIZE) &
+        (df['box_h'] > TARGET_SIZE)
+    )
+
+    # Garder les images où TOUTES les boxes satisfont le masque
+    filtered = df.groupby('base_image_name').filter(lambda g: mask[g.index].all())
+
+    print(filtered[COLUMNS])
+    filtered[COLUMNS].to_csv("search_all_class.csv", index=False)
+
 def reporting_at_least_one_box_not_in_class_list(df, class_list):
     COLUMNS = ['base_image_name', 'box_class', 'directory', 'split']
 
@@ -240,10 +258,11 @@ reporting_groupby_class_and_split(df)
 #reporting_groupby_box_count(df)
 #reporting_boxes_on_wrong_directory(df)
 
-#reporting_single_boxes_target_class_size(df, class_list=['harrier', 'hawk', 'su57', 'b1b', 'v22', 'alphajet', 'b52', 'b2', 'a4', 'hawkeye', 'mustang', 'f117', 'jaguar', 'c5', 'sr71', 'miragef1', 'spitfire'], target_size=64)
+#reporting_single_boxes_target_class_size(df, class_list=['hawk', 'su57', 'b1b', 'v22', 'alphajet', 'b52', 'b2', 'a4', 'hawkeye', 'mustang', 'f117', 'jaguar', 'c5', 'sr71', 'miragef1', 'spitfire'], target_size=64)
+#reporting_boxes_target_class_size(df, class_list=['harrier'], target_size=64)
 #reporting_single_boxes_target_class_size(df, class_list=CLASS_NAMES, target_size=2)
 #reporting_at_least_one_box_not_in_class_list(df, class_list=CLASS_NAMES)
 
 #reporting_single_classe_images(df, target_class='a10', min_size=16)
-#reporting_all_images_in_class_list(df, class_list=['unknownflanker'])
+#reporting_all_images_in_class_list(df, class_list=['flankermig29'])
 #reporting_small_boxes(df, min_size=16)

@@ -44,10 +44,10 @@ FRAME_STRIDE = 1  # 1 = toutes les frames
 DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection valide (objectness + class) target 0.6
 BATCH_SIZE = 32                         # Taille du batch d'images pour la détection
 
-VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-#VIDEO_PATH = "/media/aobled/Elements/Python/videos/DEATH VALLEY MILITARY AIRCRAFT  4K.mp4"
-TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-#TARGET_CLASS_LIST = ["f22","f35", "harrier","a10"]
+#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+VIDEO_PATH = "/media/aobled/Elements/Python/videos/C135, Four Mirage 2000s, and Two Rafales Formation Flyover Paris.mp4"
+#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+TARGET_CLASS_LIST = ["mirage2000", "rafale"]
 
 # 3. Chargement de la config dataset
 try:

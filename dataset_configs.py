@@ -63,6 +63,8 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "sophisticated_cnn_128_plus",  # ✅ OPTIMAL: Version optimisée+ (4M params, 88% val)
+        "loss_method": "cross_entropy",
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -129,6 +131,8 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "tiny_vit_plus_balanced",  # 🤖 ViT : patch_size=8, 256 tokens, 2.8M params
+        "loss_method": "cross_entropy",
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -193,6 +197,8 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "hybrid_tiny_vit",  # 🤖 Hybrid : Conv Stem + Transformer
+        "loss_method": "cross_entropy",
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -258,6 +264,8 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "sophisticated_cnn_128",
+        "loss_method": "cross_entropy",
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -320,6 +328,13 @@ DATASET_CONFIGS = {
         #"model_name": "aircraft_detector_unet",
         "model_name": "aircraft_detector_miniunet",
         "grid_size": 224,      # Segmentation sémantique (output size = input size)
+        "loss_method": "segmentation",
+        "loss_params": {
+            "bce_weight": 0.5,
+            "dice_weight": 0.5,
+            "false_positive_penalty": 2.0
+        },
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -380,6 +395,13 @@ DATASET_CONFIGS = {
         # === Modèle ---
         "model_name": "aircraft_detector_sophisticated_unet",
         "grid_size": 224,      # Segmentation sémantique (output size = input size)
+        "loss_method": "segmentation",
+        "loss_params": {
+            "bce_weight": 0.5,
+            "dice_weight": 0.5,
+            "false_positive_penalty": 2.0
+        },
+
         
         # === Hyperparamètres TPU ===
         "tpu": {
@@ -439,6 +461,8 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "kepler_1d_cnn",
+        "loss_method": "cross_entropy",
+
         
         # === Hyperparamètres TPU ===
         "tpu": {

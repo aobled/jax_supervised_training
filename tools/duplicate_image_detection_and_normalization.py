@@ -123,7 +123,7 @@ def process_all_files(directory):
 # Exemple d'utilisation
 threshold = 1
 
-directory = '/home/aobled/Downloads/tmp_multi/jpg'
+directory = '/home/aobled/Downloads/tmp_miragef1'
 duplicates = find_duplicates_optimized(directory, threshold)
 process_duplicates(directory, duplicates)
 process_all_files(directory)

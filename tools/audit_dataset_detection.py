@@ -18,7 +18,7 @@ from bounding_boxes_with_classification_from_video_generation import (
 )
 
 # --- Configuration ---
-DATASET_PATH = '/home/aobled/Downloads/tmp_multi/'
+DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/detection'
 CONFIG_NAME = "FIGHTERJET_DETECTION"
 BATCH_SIZE = 32
 DETECTION_CONF_THRESHOLD = 0.3

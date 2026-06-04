@@ -105,20 +105,32 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
     
     # 4. INSTANCIATION DE LA STRATEGIE (Injection de dépendance)
     task_type = config.get("task_type", "classification")
+    loss_method = config.get("loss_method", "cross_entropy")
+    loss_params = config.get("loss_params", {})
+    
     if task_type == "classification":
         print("🎯 Application de la logique d'entraînement : CLASSIFICATION")
         strategy = ClassificationStrategy(
             num_classes=num_classes,
             label_smoothing=config.get("label_smoothing", 0.0),
-            mixup_alpha=config.get("mixup_alpha", 0.0)
+            mixup_alpha=config.get("mixup_alpha", 0.0),
+            loss_method=loss_method,
+            loss_params=loss_params
         )
     elif task_type == "detection":
         print("🎯 Application de la logique d'entraînement : DETECTION")
-        strategy = DetectionStrategy()
+        strategy = DetectionStrategy(
+            loss_method=loss_method,
+            loss_params=loss_params
+        )
     elif task_type == "kepler":
         print("🎯 Application de la logique d'entraînement : KEPLER 1D")
         from task_strategies import KeplerStrategy
-        strategy = KeplerStrategy(num_classes=num_classes)
+        strategy = KeplerStrategy(
+            num_classes=num_classes,
+            loss_method=loss_method,
+            loss_params=loss_params
+        )
     else:
         raise ValueError(f"task_type '{task_type}' non reconnu.")
 
