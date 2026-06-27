@@ -45,9 +45,9 @@ DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection 
 BATCH_SIZE = 32                         # Taille du batch d'images pour la détection
 
 #VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-VIDEO_PATH = "/media/aobled/Elements/Python/videos/C135, Four Mirage 2000s, and Two Rafales Formation Flyover Paris.mp4"
+VIDEO_PATH = "/media/aobled/Elements/Python/videos/A-10, P-51, F-35, F-22 Oshkosh 2019.mp4"
 #TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-TARGET_CLASS_LIST = ["mirage2000", "rafale"]
+TARGET_CLASS_LIST = ["c130", "a10", "mustang", "f35", "f22"]
 
 # 3. Chargement de la config dataset
 try:

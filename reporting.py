@@ -185,8 +185,9 @@ class Reporter:
     def _plot_confusion_matrix(self, confusion_matrix, save_path, num_classes):
         """Crée et sauvegarde la visualisation de la matrice de confusion"""
         
-        # Créer la figure
-        plt.figure(figsize=(10, 8))
+        # Créer la figure avec une taille dynamique selon le nombre de classes
+        fig_size = max(10, int(num_classes * 0.5))
+        plt.figure(figsize=(fig_size, fig_size * 0.8))
         
         # Noms des classes
         if self.class_names and len(self.class_names) >= num_classes:
@@ -198,17 +199,37 @@ class Reporter:
         im = plt.imshow(confusion_matrix, cmap='Blues', interpolation='nearest')
         plt.colorbar(im, fraction=0.046, pad=0.04)
         
-        # Ajouter les annotations
+        # Ajouter les annotations (pourcentages par ligne)
+        row_sums = np.sum(confusion_matrix, axis=1)
+        row_sums = np.where(row_sums == 0, 1, row_sums) # Éviter division par 0
+        
+        # Taille de police dynamique
+        font_size = 10 if num_classes <= 10 else (8 if num_classes <= 20 else 6)
+        
         for i in range(num_classes):
             for j in range(num_classes):
                 value = confusion_matrix[i, j]
-                color = 'white' if value > confusion_matrix.max() / 2 else 'black'
-                plt.text(j, i, str(value), ha='center', va='center', 
-                        color=color, fontsize=10, fontweight='bold')
+                if value > 0:
+                    pct = (value / row_sums[i]) * 100
+                    
+                    # Pour beaucoup de classes, on masque les bruits (< 1%) et on n'affiche que le %
+                    if num_classes > 15:
+                        if pct >= 1.0:
+                            text = f"{pct:.0f}%"
+                        else:
+                            continue # On n'affiche rien pour désencombrer
+                    else:
+                        text = f"{value}\n({pct:.0f}%)"
+                        
+                    color = 'white' if value > confusion_matrix.max() / 2 else 'black'
+                    plt.text(j, i, text, ha='center', va='center', 
+                            color=color, fontsize=font_size, fontweight='bold')
         
         # Configuration des axes
-        plt.xticks(range(num_classes), class_names, rotation=45, ha='right')
-        plt.yticks(range(num_classes), class_names)
+        # Adapter la taille de la police des axes aussi
+        axis_font_size = 10 if num_classes <= 20 else 8
+        plt.xticks(range(num_classes), class_names, rotation=45, ha='right', fontsize=axis_font_size)
+        plt.yticks(range(num_classes), class_names, fontsize=axis_font_size)
         plt.xlabel('Prédictions', fontsize=12)
         plt.ylabel('Vraies classes', fontsize=12)
         plt.title('Matrice de Confusion', fontsize=14, fontweight='bold')

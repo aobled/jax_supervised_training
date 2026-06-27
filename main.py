@@ -107,6 +107,8 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
     task_type = config.get("task_type", "classification")
     loss_method = config.get("loss_method", "cross_entropy")
     loss_params = config.get("loss_params", {})
+    metric_method = config.get("metric_method", "accuracy")
+    report_method = config.get("report_method", "confusion_matrix")
     
     if task_type == "classification":
         print("🎯 Application de la logique d'entraînement : CLASSIFICATION")
@@ -115,13 +117,17 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
             label_smoothing=config.get("label_smoothing", 0.0),
             mixup_alpha=config.get("mixup_alpha", 0.0),
             loss_method=loss_method,
-            loss_params=loss_params
+            loss_params=loss_params,
+            metric_method=metric_method,
+            report_method=report_method
         )
     elif task_type == "detection":
         print("🎯 Application de la logique d'entraînement : DETECTION")
         strategy = DetectionStrategy(
             loss_method=loss_method,
-            loss_params=loss_params
+            loss_params=loss_params,
+            metric_method=metric_method,
+            report_method=report_method
         )
     elif task_type == "kepler":
         print("🎯 Application de la logique d'entraînement : KEPLER 1D")
@@ -129,7 +135,9 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
         strategy = KeplerStrategy(
             num_classes=num_classes,
             loss_method=loss_method,
-            loss_params=loss_params
+            loss_params=loss_params,
+            metric_method=metric_method,
+            report_method=report_method
         )
     else:
         raise ValueError(f"task_type '{task_type}' non reconnu.")

@@ -123,15 +123,30 @@ class Trainer:
         warmup_steps = self.config.get("warmup_steps", 1200)
         decay_steps = self.config.get("decay_steps", 6000)
         
-        self.schedule = optax.warmup_cosine_decay_schedule(
-            init_value=0.0,
-            peak_value=self.learning_rate,
-            warmup_steps=warmup_steps,
-            decay_steps=decay_steps,
-            end_value=1e-6
-        )
+        lr_schedule_type = self.config.get("lr_schedule", "cosine")
+        if lr_schedule_type == "cosine":
+            self.schedule = optax.warmup_cosine_decay_schedule(
+                init_value=0.0,
+                peak_value=self.learning_rate,
+                warmup_steps=warmup_steps,
+                decay_steps=decay_steps,
+                end_value=1e-6
+            )
+        elif lr_schedule_type == "constant":
+            self.schedule = optax.constant_schedule(self.learning_rate)
+        else:
+            raise ValueError(f"Schedule '{lr_schedule_type}' non supporté.")
         
-        tx = optax.adamw(self.schedule, weight_decay=self.weight_decay)
+        optimizer_type = self.config.get("optimizer", "adamw")
+        if optimizer_type == "adamw":
+            tx = optax.adamw(self.schedule, weight_decay=self.weight_decay)
+        elif optimizer_type == "sgd":
+            # Le SGD standard utilise un momentum optionnel, on reste basique ici
+            tx = optax.sgd(self.schedule)
+        elif optimizer_type == "adam":
+            tx = optax.adam(self.schedule)
+        else:
+            raise ValueError(f"Optimizer '{optimizer_type}' non supporté.")
         
         state = TrainStateWithBatchStats.create(
             apply_fn=self.model.apply,

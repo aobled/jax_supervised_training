@@ -63,7 +63,9 @@ DATASET_CONFIGS = {
         
         # === Modèle ===
         "model_name": "sophisticated_cnn_128_plus",  # ✅ OPTIMAL: Version optimisée+ (4M params, 88% val)
-        "loss_method": "cross_entropy",
+        "loss_method": "focal_loss",
+        "loss_params": {"gamma": 2.0},
+
 
         
         # === Hyperparamètres TPU ===
@@ -85,6 +87,8 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 40,              # 40
         "patience": 5,
         "warmup_steps": 1200,      # Rendu explicite (était hérité du Trainer)
@@ -93,7 +97,10 @@ DATASET_CONFIGS = {
         "mixup_alpha": 0.05,        # ✅ OPTIMAL: Mixup doux (meilleur compromis trouvé)
         
         # === Évaluation ===
+        "metric_method": "accuracy",
+        "report_method": "confusion_matrix",
         "eval_batch_size": 128,
+
         "eval_use_subset": True,
         "eval_max_subset": 100000,  
         
@@ -153,13 +160,18 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 80,              # 🤖 80 epochs (reprise depuis 40, attention commence à se fixer)
         "patience": 10,            # Augmenté pour laisser plus de temps (ViT lent)
         "label_smoothing": 0.15,   # 🤖 ViT bénéficie plus du label smoothing
         "mixup_alpha": 0.0,
         
         # === Évaluation ===
+        "metric_method": "accuracy",
+        "report_method": "confusion_matrix",
         "eval_batch_size": 128,
+
         "eval_use_subset": True,
         "eval_max_subset": 3000,
         
@@ -219,13 +231,18 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 60,              # 🤖 60 epochs pour Hybrid (plus rapide que ViT pur)
         "patience": 10,            # Patience élevée pour laisser converger
         "label_smoothing": 0.15,   # Label smoothing modéré
         "mixup_alpha": 0.0,
         
         # === Évaluation ===
+        "metric_method": "accuracy",
+        "report_method": "confusion_matrix",
         "eval_batch_size": 128,
+
         "eval_use_subset": True,
         "eval_max_subset": 3000,
         
@@ -286,13 +303,19 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 30,
+
         "patience": 5,
         "label_smoothing": 0.1,
         "mixup_alpha": 0.0,
         
         # === Évaluation ===
+        "metric_method": "accuracy",
+        "report_method": "confusion_matrix",
         "eval_batch_size": 128,
+
         "eval_use_subset": True,
         "eval_max_subset": 3000,
         
@@ -325,8 +348,8 @@ DATASET_CONFIGS = {
         },
         
         # === Modèle ---
-        #"model_name": "aircraft_detector_unet",
-        "model_name": "aircraft_detector_miniunet",
+        "model_name": "aircraft_detector_unet",
+        #"model_name": "aircraft_detector_miniunet",
         "grid_size": 224,      # Segmentation sémantique (output size = input size)
         "loss_method": "segmentation",
         "loss_params": {
@@ -355,13 +378,19 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
-        "epochs": 30,
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
+        "epochs": 20,
+
         "patience": 5,
         "warmup_steps": 2000,          # Préchauffage lent sur ~4 epochs
         "decay_steps": 10000,          # 🔥 CORRIGÉ : Le LR chutera maintenant vers zéro autour de l'epoch 25 (au lieu de 200)
         
         # === Évaluation/Visualization ===
+        "metric_method": "segmentation_iou",
+        "report_method": "segmentation_heatmap",
         "eval_batch_size": 16,
+
         "vis_freq": 5,
         
         # === Sauvegarde ===
@@ -422,13 +451,19 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 30,
+
         "patience": 5,
         "warmup_steps": 2000,          # Préchauffage lent sur ~4 epochs
         "decay_steps": 10000,          # 🔥 CORRIGÉ : Le LR chutera maintenant vers zéro autour de l'epoch 25 (au lieu de 200)
         
         # === Évaluation/Visualization ===
+        "metric_method": "segmentation_iou",
+        "report_method": "segmentation_heatmap",
         "eval_batch_size": 16,
+
         "vis_freq": 5,
         # === Sauvegarde ===
         "checkpoint_path": "./checkpoints_detection_sophisticated",
@@ -487,11 +522,16 @@ DATASET_CONFIGS = {
         },
         
         # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
         "epochs": 30,
+
         "patience": 5,
         "warmup_steps": 500,
         
         "eval_use_subset": False, # On évalue sur tout
+        "metric_method": "accuracy",
+        "report_method": "lightcurves",
         
         # === Sauvegarde ===
         "checkpoint_path": "best_model_kepler.pkl",

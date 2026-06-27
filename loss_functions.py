@@ -446,3 +446,27 @@ def compute_segmentation_loss(pred_mask, true_mask, bce_weight=0.5, dice_weight=
     loss = (bce_weight * bce_loss) + (dice_weight * dice_loss)
     
     return loss
+
+def compute_focal_loss(outputs, targets, gamma=2.0, alpha=1.0, use_onehot_labels=False):
+    """
+    Calcule la Focal Loss pour la classification multiclasse.
+    outputs: (Batch, NumClasses) logits
+    targets: (Batch,) labels entiers ou (Batch, NumClasses) one-hot selon use_onehot_labels
+    """
+    import jax
+    import jax.numpy as jnp
+    
+    if not use_onehot_labels:
+        targets = jax.nn.one_hot(targets, outputs.shape[-1])
+        
+    # Appliquer le log_softmax pour la stabilité numérique
+    log_probs = jax.nn.log_softmax(outputs, axis=-1)
+    probs = jnp.exp(log_probs)
+    
+    # Focal Loss = - alpha * (1 - p_t)^gamma * log(p_t)
+    focal_weight = jnp.power(1.0 - probs, gamma)
+    
+    # On multiplie par la target (qui est one-hot) pour ne garder que la classe correcte
+    loss = -jnp.sum(targets * alpha * focal_weight * log_probs, axis=-1)
+    return jnp.mean(loss)
+

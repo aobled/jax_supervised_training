@@ -9,9 +9,9 @@ from tqdm import tqdm
 def main():
     # ===== Configuration des arguments =====
     parser = argparse.ArgumentParser(description="Générer des bounding boxes pour un dataset d'images.")
-    parser.add_argument("--input_dir", type=str, default="/home/aobled/Downloads/tmp_multi",
+    parser.add_argument("--input_dir", type=str, default="/home/aobled/Downloads/tmp_sr71",
                         help="Chemin vers le dossier contenant les images")
-    parser.add_argument("--category_name", type=str, default="unknown",
+    parser.add_argument("--category_name", type=str, default="sr71",
                         help="Nom de la catégorie à utiliser dans les annotations (par défaut: 'unknown')")
     args = parser.parse_args()
 

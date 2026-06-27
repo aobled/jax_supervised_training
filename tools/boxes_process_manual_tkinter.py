@@ -34,6 +34,8 @@ class ImageManager:
         new_count = len(self.image_list)
         if old_count != new_count:
             print(f"Liste d'images mise à jour: {old_count} -> {new_count} images")
+            if (new_count == 0):
+                self.quit_app()
 
     def get_image_path(self):
         return os.path.join(self.root_folder, self.image_list[self.current_image_index])
@@ -1270,7 +1272,7 @@ class PhotoViewer:
         self.root.destroy()
 
 
-CROP_HEIGHT = 0  # Hauteur en pixels à croper (0 = désactivé)
+CROP_HEIGHT = 1  # Hauteur en pixels à croper (0 = désactivé)
 AUTO_CROP = False  # Croper automatiquement lors de la sauvegarde (touche 's')
 CATEGORY_NAME = 'unknown'
 if __name__ == "__main__":

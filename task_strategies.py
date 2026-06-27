@@ -75,12 +75,15 @@ class TaskStrategy(ABC):
         pass
 
 class ClassificationStrategy(TaskStrategy):
-    def __init__(self, num_classes: int, label_smoothing: float = 0.0, mixup_alpha: float = 0.0, loss_method: str = "cross_entropy", loss_params: dict = None):
+    def __init__(self, num_classes: int, label_smoothing: float = 0.0, mixup_alpha: float = 0.0, loss_method: str = "cross_entropy", loss_params: dict = None, metric_method: str = "accuracy", report_method: str = "confusion_matrix"):
         self.num_classes = num_classes
         self.label_smoothing = label_smoothing
         self.mixup_alpha = mixup_alpha
         self.loss_method = loss_method
         self.loss_params = loss_params or {}
+        self.metric_method = metric_method
+        self.report_method = report_method
+
 
 
     @property
@@ -117,10 +120,17 @@ class ClassificationStrategy(TaskStrategy):
         return images, targets, use_onehot
         
     def compute_loss(self, outputs, targets, use_onehot_labels=False, **kwargs):
-        if use_onehot_labels:
-            return optax.softmax_cross_entropy(outputs, targets).mean()
+        if self.loss_method == "cross_entropy":
+            if use_onehot_labels:
+                return optax.softmax_cross_entropy(outputs, targets).mean()
+            else:
+                return optax.softmax_cross_entropy_with_integer_labels(outputs, targets).mean()
+        elif self.loss_method == "focal_loss":
+            from loss_functions import compute_focal_loss
+            return compute_focal_loss(outputs, targets, use_onehot_labels=use_onehot_labels, **self.loss_params)
         else:
-            return optax.softmax_cross_entropy_with_integer_labels(outputs, targets).mean()
+            raise ValueError(f"Méthode de loss '{self.loss_method}' non supportée pour la classification.")
+
             
     def compute_metrics(self, outputs, targets):
         # Si targets est one_hot, on doit le convertir pour l'accuracy,
@@ -156,9 +166,12 @@ class ClassificationStrategy(TaskStrategy):
 
 
 class DetectionStrategy(TaskStrategy):
-    def __init__(self, loss_method: str = "segmentation", loss_params: dict = None):
+    def __init__(self, loss_method: str = "segmentation", loss_params: dict = None, metric_method: str = "segmentation_iou", report_method: str = "segmentation_heatmap"):
         self.loss_method = loss_method
         self.loss_params = loss_params or {}
+        self.metric_method = metric_method
+        self.report_method = report_method
+
 
     @property
     def primary_metric_name(self) -> str:
@@ -193,62 +206,77 @@ class DetectionStrategy(TaskStrategy):
         
         
     def compute_metrics(self, outputs, targets):
-        """Calcule le mIoU (Mean Intersection over Union) binaire pour la segmentation."""
-        # Binarisation avec un seuil de 0.5
-        threshold = 0.5
-        preds = (outputs > threshold).astype(jnp.float32)
-        targets = targets.astype(jnp.float32)
-        
-        # Calcul par image dans le batch (axes 1, 2, 3 correspondants à H, W, C)
-        intersection = jnp.sum(preds * targets, axis=(1, 2, 3))
-        union = jnp.sum(preds, axis=(1, 2, 3)) + jnp.sum(targets, axis=(1, 2, 3)) - intersection
-        
-        # S'il n'y a pas d'objet et qu'on a rien prédit, IoU = 1.0
-        # Sinon IoU = intersection / union
-        iou = jnp.where(
-            union > 0, 
-            intersection / union, 
-            jnp.where(jnp.sum(targets, axis=(1, 2, 3)) == 0, 1.0, 0.0)
-        )
-        
-        # Retourne l'IoU moyen du batch (entre 0 et 1)
-        return jnp.mean(iou)
+        if self.metric_method == "segmentation_iou":
+            """Calcule le mIoU (Mean Intersection over Union) binaire pour la segmentation."""
+            # Binarisation avec un seuil de 0.5
+            threshold = 0.5
+            preds = (outputs > threshold).astype(jnp.float32)
+            targets = targets.astype(jnp.float32)
+            
+            # Calcul par image dans le batch (axes 1, 2, 3 correspondants à H, W, C)
+            intersection = jnp.sum(preds * targets, axis=(1, 2, 3))
+            union = jnp.sum(preds, axis=(1, 2, 3)) + jnp.sum(targets, axis=(1, 2, 3)) - intersection
+            
+            # S'il n'y a pas d'objet et qu'on a rien prédit, IoU = 1.0
+            # Sinon IoU = intersection / union
+            iou = jnp.where(
+                union > 0, 
+                intersection / union, 
+                jnp.where(jnp.sum(targets, axis=(1, 2, 3)) == 0, 1.0, 0.0)
+            )
+            
+            # Retourne l'IoU moyen du batch (entre 0 et 1)
+            return jnp.mean(iou)
+        elif self.metric_method == "yolo_iou":
+            raise NotImplementedError("La métrique 'yolo_iou' doit être implémentée pour YOLO (calcul mAP ou IoU sur boxes).")
+        else:
+            raise ValueError(f"Méthode de métrique '{self.metric_method}' non supportée pour la détection.")
+
         
     def generate_reports(self, val_ds, final_state, model, config):
-        import cv2
-        import numpy as np
-        try:
-            for vis_imgs, vis_masks in val_ds.take(1).as_numpy_iterator():
-                vars = {'params': final_state.params, 'batch_stats': final_state.batch_stats}
-                pred_masks = final_state.apply_fn(vars, vis_imgs, training=False)
-                
-                # Sauvegarder juste un batch visuel pour debug
-                # Image 0
-                img0 = np.array(vis_imgs[0] * 255, dtype=np.uint8)
-                true0 = np.array(vis_masks[0] * 255, dtype=np.uint8)
-                pred0 = np.array(pred_masks[0] * 255, dtype=np.uint8)
-                
-                # OpenCV a besoin d'un vrai tableau Numpy 2D (H, W) pour la ColorMap
-                pred0_flat = pred0[..., 0] if pred0.ndim == 3 and pred0.shape[-1] == 1 else pred0
-                heatmap = cv2.applyColorMap(pred0_flat, cv2.COLORMAP_JET)
-                
-                # Conversion grayscale -> RGB si nécessaire pour la concatenation
-                if img0.shape[-1] == 1:
-                    img0 = cv2.cvtColor(img0, cv2.COLOR_GRAY2BGR)
-                true0 = cv2.cvtColor(true0, cv2.COLOR_GRAY2BGR)
-                
-                composite = cv2.hconcat([img0, true0, heatmap])
-                cv2.imwrite("final_detection_vis.png", composite)
-                break
-            print("✅ Visualisation de détection sémantique générée (final_detection_vis.png)")
-        except Exception as e:
-            print(f"❌ Erreur lors de la visualisation sémantique: {e}")
+        if self.report_method == "segmentation_heatmap":
+            import cv2
+            import numpy as np
+            try:
+                for vis_imgs, vis_masks in val_ds.take(1).as_numpy_iterator():
+                    vars = {'params': final_state.params, 'batch_stats': final_state.batch_stats}
+                    pred_masks = final_state.apply_fn(vars, vis_imgs, training=False)
+                    
+                    # Sauvegarder juste un batch visuel pour debug
+                    # Image 0
+                    img0 = np.array(vis_imgs[0] * 255, dtype=np.uint8)
+                    true0 = np.array(vis_masks[0] * 255, dtype=np.uint8)
+                    pred0 = np.array(pred_masks[0] * 255, dtype=np.uint8)
+                    
+                    # OpenCV a besoin d'un vrai tableau Numpy 2D (H, W) pour la ColorMap
+                    pred0_flat = pred0[..., 0] if pred0.ndim == 3 and pred0.shape[-1] == 1 else pred0
+                    heatmap = cv2.applyColorMap(pred0_flat, cv2.COLORMAP_JET)
+                    
+                    # Conversion grayscale -> RGB si nécessaire pour la concatenation
+                    if img0.shape[-1] == 1:
+                        img0 = cv2.cvtColor(img0, cv2.COLOR_GRAY2BGR)
+                    true0 = cv2.cvtColor(true0, cv2.COLOR_GRAY2BGR)
+                    
+                    composite = cv2.hconcat([img0, true0, heatmap])
+                    cv2.imwrite("final_detection_vis.png", composite)
+                    break
+                print("✅ Visualisation de détection sémantique générée (final_detection_vis.png)")
+            except Exception as e:
+                print(f"❌ Erreur lors de la visualisation sémantique: {e}")
+        elif self.report_method == "yolo_boxes":
+            raise NotImplementedError("Le rapport 'yolo_boxes' doit être implémenté pour YOLO (dessin des boxes au lieu d'une heatmap).")
+        else:
+            print(f"⚠️ Méthode de rapport '{self.report_method}' non supportée pour la détection.")
+
 
 class KeplerStrategy(TaskStrategy):
-    def __init__(self, num_classes: int, loss_method: str = "cross_entropy", loss_params: dict = None):
+    def __init__(self, num_classes: int, loss_method: str = "cross_entropy", loss_params: dict = None, metric_method: str = "accuracy", report_method: str = "lightcurves"):
         self.num_classes = num_classes
         self.loss_method = loss_method
         self.loss_params = loss_params or {}
+        self.metric_method = metric_method
+        self.report_method = report_method
+
 
 
     @property
