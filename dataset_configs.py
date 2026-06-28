@@ -39,8 +39,8 @@ DATASET_CONFIGS = {
     "FIGHTERJET_CLASSIFICATION": {
         # === CONFIG OPTIMALE CNN 128×128 GRAYSCALE STRETCHED ===
         # === Données ===
-        "num_classes": 35,
-        "class_names": ['a10', 'a4', 'a400m', 'alphajet', 'b1b', 'b2', 'b52', 'c130', 'c17', 'c5', 'f117', 'f14', 'f15', 'f16', 'f18', 'f22', 'f35', 'f4', 'flanker', 'gripen', 'harrier', 'hawk', 'hawkeye', 'jaguar', 'mig29', 'mirage2000', 'miragef1', 'mustang', 'rafale', 'spitfire', 'sr71', 'su57', 'tornado', 'typhoon', 'v22'],
+        "num_classes": 32,
+        "class_names": ['a10', 'a4', 'a400m', 'alphajet', 'b1b', 'b2', 'b52', 'c130', 'c17', 'f117', 'f14', 'f15', 'f16', 'f18', 'f22', 'f35', 'f4', 'flanker', 'gripen', 'harrier', 'hawk', 'hawkeye', 'mig29', 'mirage2000', 'mustang', 'rafale', 'spitfire', 'sr71', 'su57', 'tornado', 'typhoon', 'v22'],
         "data_dir": "/home/aobled/Downloads/_balanced_dataset_split",
         "output_prefix": "./data/chunks/classification/dataset_classification",
         "chunk_size": 28000,
@@ -341,9 +341,9 @@ DATASET_CONFIGS = {
             "flip_h": True,
             "flip_v": True,
             "rotation_factor": 0.0,
-            "zoom_factor": 0.25,          # ±25% (était 20%) : Pour apprendre le multi-échelles
-            "translation_factor": 0.15,   # Shifting ±15% (était 10%) : Désaxer les cibles
-            "brightness_delta": 0.30,     # Beaucoup plus agressif (casser la dominante ciel gris clair)
+            "zoom_factor": 0.35,          # ±25% (était 20%) : Pour apprendre le multi-échelles
+            "translation_factor": 0.25,   # Shifting ±15% (était 10%) : Désaxer les cibles
+            "brightness_delta": 0.15,     # Beaucoup plus agressif (casser la dominante ciel gris clair)
             "contrast_factor": 0.30       # Très agressif (simule contre-jour et nuages sombres)
         },
         
@@ -353,8 +353,8 @@ DATASET_CONFIGS = {
         "grid_size": 224,      # Segmentation sémantique (output size = input size)
         "loss_method": "segmentation",
         "loss_params": {
-            "bce_weight": 0.5,
-            "dice_weight": 0.5,
+            "bce_weight": 0.3,
+            "dice_weight": 0.7,
             "false_positive_penalty": 2.0
         },
 

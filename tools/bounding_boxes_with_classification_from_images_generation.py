@@ -29,7 +29,7 @@ from model_library import get_model  # Uniquement get_model (pas besoin de la cl
 DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
 CHECKPOINT_PATH = "best_model.pkl"      # Chemin vers le modèle de CLASSIFICATION
 INPUT_DIR = "/home/aobled/Downloads/tmp_multi"  # Dossier d'entrée (images à traiter)
-CONFIDENCE_THRESHOLD = 0.8            # Seuil de confiance pour valider une CLASSIFICATION bet 0.96
+CONFIDENCE_THRESHOLD = 0.6            # Seuil de confiance pour valider une CLASSIFICATION bet 0.96
 
 # 2. Configuration du modèle de détection
 DETECTION_CHECKPOINT_PATH = "best_model_detection.pkl" # Chemin vers le modèle de DÉTECTION
@@ -40,7 +40,7 @@ DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection 
 BOX_AERA_MIN = 60
 NMS_THRESHOLD = 0.4
 
-DEFAULT_CLASSE = "sr71"
+DEFAULT_CLASSE = "unknown"
 
 # 3. Chargement de la config dataset
 try:
