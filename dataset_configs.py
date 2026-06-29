@@ -361,7 +361,7 @@ DATASET_CONFIGS = {
         
         # === Hyperparamètres TPU ===
         "tpu": {
-            "micro_batch_size": 64,    # Batch ramené à 32 pour plus de stochasticité (YOLO)
+            "micro_batch_size": 128,    # Batch ok à 65, test avec 128
             "accum_steps": 1,          # Accumulation pour simuler 64
             "learning_rate": 4e-4,     # LR légèrement remonté
             "weight_decay": 5e-5,
@@ -380,11 +380,11 @@ DATASET_CONFIGS = {
         # === Entraînement ===
         "optimizer": "adamw",
         "lr_schedule": "cosine",
-        "epochs": 20,
+        "epochs": 8,
 
         "patience": 5,
-        "warmup_steps": 2000,          # Préchauffage lent sur ~4 epochs
-        "decay_steps": 10000,          # 🔥 CORRIGÉ : Le LR chutera maintenant vers zéro autour de l'epoch 25 (au lieu de 200)
+        "warmup_steps": 400,           # Préchauffage rapide sur ~0.15 epoch
+        "decay_steps": 22000,          # Le LR chutera vers zéro autour de la fin de l'epoch 8
         
         # === Évaluation/Visualization ===
         "metric_method": "segmentation_iou",

@@ -318,8 +318,9 @@ class DetectionDataset:
                         px = tf.cast(sx * tf.cast(img_w, tf.float32), tf.int32)
                         py = tf.cast(sy * tf.cast(img_h, tf.float32), tf.int32)
                         
-                        pad_h = tf.cast(0.20 * tf.cast(img_h, tf.float32), tf.int32)
-                        pad_w = tf.cast(0.20 * tf.cast(img_w, tf.float32), tf.int32)
+                        # Le padding doit s'adapter dynamiquement au trans_factor pour éviter un débordement
+                        pad_h = tf.cast(trans_factor * tf.cast(img_h, tf.float32), tf.int32) + 1
+                        pad_w = tf.cast(trans_factor * tf.cast(img_w, tf.float32), tf.int32) + 1
                         
                         padded_img = tf.pad(i, paddings=[[pad_h, pad_h], [pad_w, pad_w], [0, 0]], mode='REFLECT')
                         start_y = pad_h - py
@@ -332,8 +333,8 @@ class DetectionDataset:
                         px = tf.cast(sx * tf.cast(img_w, tf.float32), tf.int32)
                         py = tf.cast(sy * tf.cast(img_h, tf.float32), tf.int32)
                         
-                        pad_h = tf.cast(0.20 * tf.cast(img_h, tf.float32), tf.int32)
-                        pad_w = tf.cast(0.20 * tf.cast(img_w, tf.float32), tf.int32)
+                        pad_h = tf.cast(trans_factor * tf.cast(img_h, tf.float32), tf.int32) + 1
+                        pad_w = tf.cast(trans_factor * tf.cast(img_w, tf.float32), tf.int32) + 1
                         
                         padded_mask = tf.pad(m, paddings=[[pad_h, pad_h], [pad_w, pad_w], [0, 0]], mode='CONSTANT')
                         start_y = pad_h - py

@@ -611,7 +611,7 @@ if __name__ == "__main__":
                     # SAUVEGARDE IMAGE
                     # ==================================================
                     output_path = os.path.join(OUTPUT_DIR, f"frame_{target_idx:06d}.jpg")
-                    cv2.imwrite(output_path, canvas)
+                    cv2.imwrite(output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                     saved_count += 1
                     
                 frames_buffer.clear()
@@ -647,7 +647,7 @@ if __name__ == "__main__":
                 )
 
                 output_path = os.path.join(OUTPUT_DIR, f"frame_{target_idx:06d}.jpg")
-                cv2.imwrite(output_path, canvas)
+                cv2.imwrite(output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                 saved_count += 1
                 
             frames_buffer.clear()

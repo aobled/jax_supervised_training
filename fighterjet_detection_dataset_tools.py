@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict
 import cv2
 
 def process_detection_dataset(
-    root_dir: str,
+    root_dirs: List[str],
     output_dir: str,
     split_name: str = "train",
     target_size: Tuple[int, int] = (224, 224),  # ✅ Valeur par défaut changée à 224x224
@@ -27,7 +27,7 @@ def process_detection_dataset(
         grayscale: Si True, convertit les images en niveaux de gris (1 canal) au lieu de RGB (3 canaux)
     """
     mode_str = "Grayscale (1 canal)" if grayscale else "RGB (3 canaux)"
-    print(f"🚀 Traitement Détection ({split_name}) : {root_dir} -> {target_size} [{mode_str}]")
+    print(f"🚀 Traitement Détection ({split_name}) : {len(root_dirs)} dossiers -> {target_size} [{mode_str}]")
     
     # Structure pour regrouper les infos par image
     # Clé: nom_image_source (ex: "8a3ab5634b9ab46c.jpg")
@@ -35,7 +35,13 @@ def process_detection_dataset(
     images_data: Dict[str, Dict] = {}
     
     # 1. Scanner tous les JSONs pour regrouper par image
-    json_files = glob.glob(os.path.join(root_dir, "**", "*.json"), recursive=True)
+    json_files = []
+    for directory in root_dirs:
+        if os.path.exists(directory):
+            json_files.extend(glob.glob(os.path.join(directory, "**", "*.json"), recursive=True))
+        else:
+            print(f"⚠️  Dossier introuvable : {directory}")
+            
     print(f"📚 Analyse de {len(json_files)} fichiers JSON...")
     
     for json_file in tqdm.tqdm(json_files, desc="Grouping annotations"):
@@ -159,8 +165,14 @@ if __name__ == "__main__":
     config = get_dataset_config("FIGHTERJET_DETECTION")
     
     # Configuration des chemins
-    TRAIN_DIR = "/home/aobled/Downloads/Aircraft_DATASET/detection/train"
-    VAL_DIR = "/home/aobled/Downloads/Aircraft_DATASET/detection/val"
+    TRAIN_DIRS = [
+        "/home/aobled/Downloads/Aircraft_DATASET/detection/train",
+        "/home/aobled/Downloads/Aircraft_DATASET/classification/train"
+    ]
+    VAL_DIRS = [
+        "/home/aobled/Downloads/Aircraft_DATASET/detection/val",
+        "/home/aobled/Downloads/Aircraft_DATASET/classification/val"
+    ]
     OUTPUT_DIR = os.path.dirname(config["output_prefix"])
     
     print("🚀 Démarrage de la préparation des données de DÉTECTION...")
@@ -182,29 +194,24 @@ if __name__ == "__main__":
     USE_GRAYSCALE = True  # ✅ Recommandé: 3× moins de mémoire, même performance
     
     # 1. Traiter le Training Set
-    if os.path.exists(TRAIN_DIR):
-        process_detection_dataset(
-            TRAIN_DIR, 
-            OUTPUT_DIR, 
-            split_name="train", 
-            target_size=config.get("image_size", (224, 224)),
-            max_boxes=config.get("max_boxes", 20),
-            chunk_size=24000,
-            grayscale=config.get("grayscale", True)
-        )
-    else:
-        print(f"❌ Dossier train non trouvé: {TRAIN_DIR}")
+    process_detection_dataset(
+        TRAIN_DIRS, 
+        OUTPUT_DIR, 
+        split_name="train", 
+        target_size=config.get("image_size", (224, 224)),
+        max_boxes=config.get("max_boxes", 20),
+        chunk_size=25000,
+        grayscale=config.get("grayscale", True)
+    )
 
     # 2. Traiter le Val Set
-    if os.path.exists(VAL_DIR):
-        process_detection_dataset(
-            VAL_DIR, 
-            OUTPUT_DIR, 
-            split_name="val", 
-            target_size=config.get("image_size", (224, 224)),
-            max_boxes=config.get("max_boxes", 20),
-            chunk_size=24000,
-            grayscale=config.get("grayscale", True)
-        )
-    else:
-        print(f"❌ Dossier val non trouvé: {VAL_DIR}")
+    process_detection_dataset(
+        VAL_DIRS, 
+        OUTPUT_DIR, 
+        split_name="val", 
+        target_size=config.get("image_size", (224, 224)),
+        max_boxes=config.get("max_boxes", 20),
+        chunk_size=25000,
+        grayscale=config.get("grayscale", True)
+    )
+
