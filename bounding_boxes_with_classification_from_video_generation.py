@@ -485,16 +485,18 @@ def build_quadrant_canvas(target_frame, target_heatmap_lr, target_binary_mask_lr
     bl_img = cv2.resize(hm_color, (960, 540))
     canvas[540:1080, 0:960] = bl_img
 
-    # 3. Top-Right: Annotated + overlay heatmap HD (upscale uniquement pour la viz)
-    # OPTIMISATION : On fait tout directement en 960x540 au lieu de 1920x1080 !
-    tr_img = cv2.resize(target_frame, (960, 540))
+    # 3. Top-Right: Annotated + overlay heatmap
+    # Optimisation 1 : Réutilisation de l'image redimensionnée (tl_img)
+    tr_img = tl_img.copy()
     
-    heatmap_md = cv2.resize(target_heatmap_lr, (960, 540), interpolation=cv2.INTER_LINEAR)
-    heatmap_uint8 = np.clip(heatmap_md * 255, 0, 255).astype(np.uint8)
-    heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-    heatmap_color[heatmap_uint8 <= 40] = 0
+    # Optimisation 2 : Réutilisation de la heatmap colorée (bl_img)
+    # Création rapide d'un masque binaire en 960x540
+    heatmap_mask = cv2.resize((target_heatmap_lr > (40/255)).astype(np.uint8), (960, 540), interpolation=cv2.INTER_NEAREST)
+    
+    heatmap_color_tr = bl_img.copy()
+    heatmap_color_tr[heatmap_mask == 0] = 0
 
-    cv2.addWeighted(tr_img, 1.0, heatmap_color, 0.45, 0, dst=tr_img)
+    cv2.addWeighted(tr_img, 1.0, heatmap_color_tr, 0.45, 0, dst=tr_img)
 
     binary_mask_md = cv2.resize(
         target_binary_mask_lr, (960, 540), interpolation=cv2.INTER_NEAREST
