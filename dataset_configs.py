@@ -43,7 +43,7 @@ DATASET_CONFIGS = {
         "class_names": ['a10', 'a4', 'a400m', 'alphajet', 'b1b', 'b2', 'b52', 'c130', 'c17', 'f117', 'f14', 'f15', 'f16', 'f18', 'f22', 'f35', 'f4', 'flanker', 'gripen', 'harrier', 'hawk', 'hawkeye', 'mig29', 'mirage2000', 'mustang', 'rafale', 'spitfire', 'sr71', 'su57', 'tornado', 'typhoon', 'v22'],
         "data_dir": "/home/aobled/Downloads/_balanced_dataset_split",
         "output_prefix": "./data/chunks/classification/dataset_classification",
-        "chunk_size": 28000,
+        "chunk_size": 30000,
         "image_size": (128, 128),
         "grayscale": True,  # ✅ GRAYSCALE (3× plus rapide, même accuracy)
         "augmentation_params": {
@@ -365,7 +365,7 @@ DATASET_CONFIGS = {
             "accum_steps": 1,          # Accumulation pour simuler 64
             "learning_rate": 4e-4,     # LR légèrement remonté
             "weight_decay": 5e-5,
-            "dropout_rate": 0.2,
+            "dropout_rate": 0.0,
         },
         
         # === Hyperparamètres GPU ===

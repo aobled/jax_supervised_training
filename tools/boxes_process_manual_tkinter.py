@@ -1105,7 +1105,7 @@ class PhotoViewer:
             box_aera_min=25
         )
         
-        pred_boxes, target_heatmap, target_binary_mask = batch_results[0]
+        pred_boxes, target_heatmap_lr, _target_binary_mask = batch_results[0]
         
         crop_imgs = []
         valid_boxes = []
@@ -1131,8 +1131,11 @@ class PhotoViewer:
             crop_imgs, self.clf_predict_fn, self.dataset_mean, self.dataset_std, self.clf_config
         )
         
-        # --- Construction de la heatmap couleur ---
-        heatmap_uint8 = np.clip(target_heatmap * 255, 0, 255).astype(np.uint8)
+        # --- Construction de la heatmap couleur (upscale basse résolution -> HD) ---
+        target_heatmap_hd = cv2.resize(
+            target_heatmap_lr, (img_w, img_h), interpolation=cv2.INTER_LINEAR
+        )
+        heatmap_uint8 = np.clip(target_heatmap_hd * 255, 0, 255).astype(np.uint8)
         
         heatmap_color = cv2.applyColorMap(
             heatmap_uint8,
@@ -1272,11 +1275,11 @@ class PhotoViewer:
         self.root.destroy()
 
     
-CROP_HEIGHT = 1  # Hauteur en pixels à croper (0 = désactivé)
+CROP_HEIGHT = 4  # Hauteur en pixels à croper (0 = désactivé)
 AUTO_CROP = False  # Croper automatiquement lors de la sauvegarde (touche 's')
-CATEGORY_NAME = 'unknown'
+CATEGORY_NAME = 'b1b'
 if __name__ == "__main__":
-    root_folder = "/home/aobled/Downloads/tmp_hawkeye/"
+    root_folder = "/home/aobled/Downloads/tmp_multi"
     viewer = PhotoViewer(root_folder, category_name=CATEGORY_NAME, crop_height=CROP_HEIGHT, auto_crop=AUTO_CROP)
 
 

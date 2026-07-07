@@ -1,6 +1,12 @@
 import sys
 import os
 
+# Réduit les crashs cuDNN autotune (GTX 1660 Ti) — doit être défini avant import jax
+os.environ.setdefault(
+    "XLA_FLAGS",
+    "--xla_gpu_strict_conv_algorithm_picker=true",
+)
+
 # Ajouter le répertoire parent en PRIORITÉ absolue (index 0) pour forcer Python
 # à utiliser le model_library.py de JAX_Detection (et non celui de JAX_Classification si exécuté depuis l'autre dossier)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,8 +38,12 @@ DETECTION_IMAGE_SIZE = (224, 224)       # Taille d'entrée du modèle de détect
 CROP_MARGIN_PERCENT = 0  # 15 = Ajoute 15% de marge autour de la détection pour le classifieur
 BOX_AERA_MIN = 500
 
-# PRIORITÉ AU DOSSIER PARENT
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CANVAS_WIDTH = 1920
+CANVAS_HEIGHT = 1080
+
+# Kernels morphologiques pré-alloués (post-traitement masque basse résolution)
+_CLOSING_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+_DILATE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
 
 # ==========================================================
@@ -42,12 +52,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection valide (objectness + class) target 0.6
-BATCH_SIZE = 32                         # Taille du batch d'images pour la détection
+BATCH_SIZE = 24                         # Batch détection (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
+CLF_BATCH_SIZE = 24                     # Batch classification fixe (évite recompilation cuDNN)
 
-VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-#VIDEO_PATH = "/home/aobled/Downloads/topgun-01.mp4"
-TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-#TARGET_CLASS_LIST = ["f14"]
+#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+VIDEO_PATH = "/home/aobled/Downloads/tmp 250th USA.mp4"
+#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+TARGET_CLASS_LIST = ["f35", "f18","v22","f22", "b1b", "b2", "f16", "c17"]
 
 # 3. Chargement de la config dataset
 try:
@@ -152,27 +163,74 @@ def _preprocess_crop_to_hwc(crop_img, mean, std, config):
     return img_normalized
 
 
+def _pad_batch_np(batch_np, target_batch_size):
+    """Pad un batch numpy à une taille fixe pour éviter la recompilation JAX."""
+    n = batch_np.shape[0]
+    if n >= target_batch_size:
+        return batch_np[:target_batch_size], min(n, target_batch_size)
+    pad_shape = (target_batch_size - n,) + batch_np.shape[1:]
+    padding = np.zeros(pad_shape, dtype=batch_np.dtype)
+    return np.concatenate([batch_np, padding], axis=0), n
+
+
+def build_det_predict_fn(det_model, det_vars):
+    @jax.jit
+    def predict_fn(batch_images):
+        return det_model.apply(det_vars, batch_images, training=False)
+    return predict_fn
+
+
+def build_clf_predict_fn(clf_model, clf_vars):
+    @jax.jit
+    def predict_fn(batch_images):
+        return clf_model.apply(clf_vars, batch_images, training=False)
+    return predict_fn
+
+
+def warmup_jit_predictors(det_predict_fn, det_config, clf_predict_fn, config):
+    """Compile les kernels cuDNN une seule fois avant la boucle vidéo."""
+    det_size = det_config.get("image_size", DETECTION_IMAGE_SIZE)
+    det_gray = det_config.get("grayscale", True)
+    det_ch = 1 if det_gray else 3
+    det_dummy = jnp.zeros((BATCH_SIZE, *det_size, det_ch), dtype=jnp.float32)
+
+    clf_size = config["image_size"]
+    clf_ch = 1 if config.get("grayscale", False) else 3
+    clf_dummy = jnp.zeros((CLF_BATCH_SIZE, *clf_size, clf_ch), dtype=jnp.float32)
+
+    print(f"   Warmup détection (batch={BATCH_SIZE})...")
+    det_predict_fn(det_dummy).block_until_ready()
+    print(f"   Warmup classification (batch={CLF_BATCH_SIZE})...")
+    clf_predict_fn(clf_dummy).block_until_ready()
+
+
 def predict_crops_batch(crop_imgs, predict_fn, mean, std, config):
     """
-    Classifie plusieurs crops en un seul forward JAX.
-    Retourne une liste de (nom_classe, confiance), une entrée par élément de crop_imgs
-    (même ordre, pas de moyenne entre crops).
+    Classifie plusieurs crops en chunks de taille fixe CLF_BATCH_SIZE.
+    Retourne une liste de (nom_classe, confiance), une entrée par élément de crop_imgs.
     """
     if not crop_imgs:
         return []
-    batch_np = np.stack(
-        [_preprocess_crop_to_hwc(c, mean, std, config) for c in crop_imgs],
-        axis=0,
-    )
-    logits = predict_fn(jnp.array(batch_np))
-    probs = jax.nn.softmax(logits, axis=-1)
-    pred_indices = jnp.argmax(probs, axis=-1)
+
     names = config["class_names"]
-    n = len(crop_imgs)
-    return [
-        (names[int(pred_indices[i])], float(probs[i, int(pred_indices[i])]))
-        for i in range(n)
-    ]
+    all_results = []
+
+    for start in range(0, len(crop_imgs), CLF_BATCH_SIZE):
+        chunk_crops = crop_imgs[start:start + CLF_BATCH_SIZE]
+        batch_np = np.stack(
+            [_preprocess_crop_to_hwc(c, mean, std, config) for c in chunk_crops],
+            axis=0,
+        )
+        padded_np, valid_n = _pad_batch_np(batch_np, CLF_BATCH_SIZE)
+        logits = predict_fn(jnp.array(padded_np))
+        probs = jax.nn.softmax(logits[:valid_n], axis=-1)
+        pred_indices = jnp.argmax(probs, axis=-1)
+
+        for i in range(valid_n):
+            idx = int(pred_indices[i])
+            all_results.append((names[idx], float(probs[i, idx])))
+
+    return all_results
 
 
 def predict_crop(crop_img, predict_fn, mean, std, config):
@@ -289,22 +347,23 @@ def non_max_suppression(boxes, iou_threshold):
 def decode_segmentation_and_detect_batch(frames_bgr, predict_fn, config_model, conf_threshold=0.3, box_aera_min=225):
     """
     Exécute la détection par Segmentation Sémantique (U-Net) sur un batch d'images.
-    Retourne une liste de tuples (final_detections, mask_resized, binary_mask).
+    Post-traitement en basse résolution (224×224), projection des boxes en HD.
+    Retourne une liste de tuples (final_detections_hd, pred_mask_lr, binary_mask_lr).
     """
     if not frames_bgr:
         return []
-        
-    # 1. Prétraitement de tout le batch
+
     target_size = config_model.get("image_size", DETECTION_IMAGE_SIZE)
+    target_w, target_h = target_size
     grayscale = config_model.get("grayscale", True)
-    
+
     batch_input = []
     orig_shapes = []
-    
+
     for img_bgr in frames_bgr:
         h_orig, w_orig = img_bgr.shape[:2]
         orig_shapes.append((h_orig, w_orig))
-        
+
         img_resized = cv2.resize(img_bgr, target_size)
         if grayscale:
             img_input = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
@@ -314,151 +373,128 @@ def decode_segmentation_and_detect_batch(frames_bgr, predict_fn, config_model, c
             img_input = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
             img_input = img_input.astype(np.float32) / 255.0
             batch_input.append(img_input)
-            
+
     img_jax_batch = jnp.array(np.stack(batch_input, axis=0))
-    
-    # 2. Inférence U-Net Massive en une seule passe !
+    n_frames = len(frames_bgr)
+    if n_frames < BATCH_SIZE:
+        pad_shape = (BATCH_SIZE - n_frames,) + batch_input[0].shape
+        img_jax_batch = jnp.concatenate(
+            [img_jax_batch, jnp.zeros(pad_shape, dtype=img_jax_batch.dtype)],
+            axis=0,
+        )
+
     preds = predict_fn(img_jax_batch)
-    # preds est (BATCH_SIZE, 224, 224, 1)
-    
-    preds_np = np.array(preds)
+    preds_np = np.array(preds)[:n_frames]
     results = []
-    
-    # 3. Post-traitement (OpenCV) boucle par boucle
-    for i, img_bgr in enumerate(frames_bgr):
+
+    for i in range(n_frames):
         h_orig, w_orig = orig_shapes[i]
-        pred_mask = preds_np[i, :, :, 0] # (224, 224)
-        
-        # Redimensionnement à la taille de l'image originale
-        mask_resized = cv2.resize(pred_mask, (w_orig, h_orig), interpolation=cv2.INTER_CUBIC)
-        
-        # Binarisation Directe
-        binary_mask = (mask_resized > conf_threshold).astype(np.uint8) * 255
-        
-        closing_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-        binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, closing_kernel, iterations=1)
-        
-        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        binary_mask = cv2.dilate(binary_mask, dilate_kernel, iterations=1)    
-        
-        # Extraction des Contours
-        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        pred_mask = preds_np[i, :, :, 0]
+
+        binary_mask_lr = (pred_mask > conf_threshold).astype(np.uint8) * 255
+        binary_mask_lr = cv2.morphologyEx(binary_mask_lr, cv2.MORPH_CLOSE, _CLOSING_KERNEL, iterations=1)
+        binary_mask_lr = cv2.dilate(binary_mask_lr, _DILATE_KERNEL, iterations=1)
+
+        scale_x = w_orig / target_w
+        scale_y = h_orig / target_h
+        box_area_min_lr = box_aera_min / (scale_x * scale_y)
+
+        contours, _ = cv2.findContours(binary_mask_lr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         final_detections = []
-        
+
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < box_aera_min:
+            if area < box_area_min_lr:
                 continue
-                
+
             x, y, w, h = cv2.boundingRect(contour)
-            
-            sub_mask = mask_resized[y:y+h, x:x+w]
+            sub_mask = pred_mask[y:y + h, x:x + w]
             score = float(np.max(sub_mask)) if sub_mask.size > 0 else 1.0
-            
-            # Application de la marge proportionnelle
+
             margin_x = int(w * (CROP_MARGIN_PERCENT / 100.0))
             margin_y = int(h * (CROP_MARGIN_PERCENT / 100.0))
-            
-            x1 = max(0, x - margin_x)
-            y1 = max(0, y - margin_y)
-            x2 = min(w_orig, x + w + margin_x)
-            y2 = min(h_orig, y + h + margin_y)
-            
+
+            x1_lr = max(0, x - margin_x)
+            y1_lr = max(0, y - margin_y)
+            x2_lr = min(target_w, x + w + margin_x)
+            y2_lr = min(target_h, y + h + margin_y)
+
+            x1 = int(x1_lr * scale_x)
+            y1 = int(y1_lr * scale_y)
+            x2 = min(w_orig, int(x2_lr * scale_x))
+            y2 = min(h_orig, int(y2_lr * scale_y))
+
             final_detections.append((x1, y1, x2, y2, score))
-        
+
         final_detections = sorted(final_detections, key=lambda b: (b[1], b[0]))
-        results.append((final_detections, mask_resized, binary_mask))
-            
+        results.append((final_detections, pred_mask, binary_mask_lr))
+
     return results
 
-# =================================================================================================
-# MAIN
-# =================================================================================================
+
+def classify_batch_detections(frames_buffer, batch_results, clf_predict_fn, dataset_mean, dataset_std, config):
+    """
+    Agrège tous les crops du batch de frames et classifie en un seul forward JAX.
+    Retourne une liste (par frame) de tuples (box, crop, (classe, confiance)).
+    """
+    all_crops = []
+    per_frame_items = []
+
+    for i, (detections, _, _) in enumerate(batch_results):
+        frame_items = []
+        for box in detections:
+            x1, y1, x2, y2, _ = box
+            crop = frames_buffer[i][y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+            frame_items.append((box, crop))
+            all_crops.append(crop)
+        per_frame_items.append(frame_items)
+
+    all_preds = predict_crops_batch(all_crops, clf_predict_fn, dataset_mean, dataset_std, config)
+
+    pred_idx = 0
+    frame_predictions = []
+    for frame_items in per_frame_items:
+        frame_preds = []
+        for box, crop in frame_items:
+            frame_preds.append((box, crop, all_preds[pred_idx]))
+            pred_idx += 1
+        frame_predictions.append(frame_preds)
+
+    return frame_predictions
 
 
+def build_quadrant_canvas(target_frame, target_heatmap_lr, target_binary_mask_lr, frame_predictions, config):
+    """Construit le canvas 4 quadrants. Les masques sont en basse résolution (upscale lazy pour la viz)."""
+    canvas = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH, 3), dtype=np.uint8)
+    h_orig, w_orig = target_frame.shape[:2]
 
-# ==========================================================
-# ⚠️ COLLER ICI TES FONCTIONS EXISTANTES :
-# - load_jax_model
-# - load_detection_model
-# - predict_crop
-# - decode_grid_and_detect
-# - non_max_suppression
-# - get_iou
-# ==========================================================
-
-
-# ==========================================================
-# MAIN
-# ==========================================================
-def build_quadrant_canvas(target_frame,
-                          target_heatmap,
-                          target_binary_mask,
-                          target_detections,
-                          clf_predict_fn,
-                          dataset_mean,
-                          dataset_std,
-                          config):
-    canvas = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    
     # 1. Top-Left: Original
     tl_img = cv2.resize(target_frame, (960, 540))
     canvas[0:540, 0:960] = tl_img
-    
-    # 2. Bottom-Left: Heatmap
-    hm_vis = (target_heatmap * 255).astype(np.uint8)
+
+    # 2. Bottom-Left: Heatmap (masque basse résolution)
+    hm_vis = (target_heatmap_lr * 255).astype(np.uint8)
     hm_color = cv2.applyColorMap(hm_vis, cv2.COLORMAP_JET)
     bl_img = cv2.resize(hm_color, (960, 540))
     canvas[540:1080, 0:960] = bl_img
-    
-    # 3. Top-Right: Annotated + Transparent Heatmap Overlay    
-    # --- Construction de la heatmap couleur ---
-    heatmap_uint8 = np.clip(target_heatmap * 255, 0, 255).astype(np.uint8)
-    
-    heatmap_color = cv2.applyColorMap(
-        heatmap_uint8,
-        cv2.COLORMAP_JET
-    )
-    
-    # Supprime les faibles activations visuellement
-    mask = heatmap_uint8 > 40
-    
-    heatmap_color[~mask] = 0
 
-    # --- Overlay transparent ---
-    alpha = 0.45  # transparence heatmap
-    
-    draw_frame = cv2.addWeighted(
-        target_frame,
-        1.0,
-        heatmap_color,
-        alpha,
-        0
+    # 3. Top-Right: Annotated + overlay heatmap HD (upscale uniquement pour la viz)
+    heatmap_hd = cv2.resize(target_heatmap_lr, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
+    heatmap_uint8 = np.clip(heatmap_hd * 255, 0, 255).astype(np.uint8)
+    heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+    heatmap_color[heatmap_uint8 <= 40] = 0
+
+    draw_frame = cv2.addWeighted(target_frame, 1.0, heatmap_color, 0.45, 0)
+
+    binary_mask_hd = cv2.resize(
+        target_binary_mask_lr, (w_orig, h_orig), interpolation=cv2.INTER_NEAREST
     )
-    
-    
-    # =====================================================
-    # Dessin des contours du binary mask
-    # =====================================================
-    
-    binary_mask_uint8 = target_binary_mask.astype(np.uint8)
-    
-    contours, _ = cv2.findContours(
-        binary_mask_uint8,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-    
-    cv2.drawContours(
-        draw_frame,
-        contours,
-        -1,
-        (255, 255, 255),  # blanc
-        1
-    )
-    
-    
-    # 4. Bottom-Right: Classification Crops
+    contours, _ = cv2.findContours(binary_mask_hd, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(draw_frame, contours, -1, (255, 255, 255), 1)
+
+    # 4. Bottom-Right: Classification Crops (prédictions déjà calculées)
     br_canvas = np.zeros((540, 960, 3), dtype=np.uint8)
     crop_idx = 0
     grid_cols = 7
@@ -466,63 +502,78 @@ def build_quadrant_canvas(target_frame,
     cell_w = 128
     cell_h = 128
 
-    valid_boxes_crops = []
-    for (x1, y1, x2, y2, det_score) in target_detections:
-        crop = target_frame[y1:y2, x1:x2]
-        if crop.size == 0:
-            continue
-        valid_boxes_crops.append(((x1, y1, x2, y2, det_score), crop))
-
-    batch_preds = predict_crops_batch(
-        [c for _, c in valid_boxes_crops],
-        clf_predict_fn,
-        dataset_mean,
-        dataset_std,
-        config,
-    )
-
-    for ((x1, y1, x2, y2, det_score), crop), (predicted_class, confidence) in zip(
-        valid_boxes_crops, batch_preds
-    ):
-
-        # Draw Top-Right
+    for (x1, y1, x2, y2, det_score), crop, (predicted_class, confidence) in frame_predictions:
         color = (0, 255, 0) if predicted_class in TARGET_CLASS_LIST else (0, 0, 255)
         label = f"{predicted_class}"
         cv2.rectangle(draw_frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(draw_frame, label, (x1, max(y1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        
-        # Draw Bottom-Right
+
         if crop_idx < grid_cols * grid_rows:
             col = crop_idx % grid_cols
             row = crop_idx // grid_cols
-            
+
             crop_resized = cv2.resize(crop, (cell_w, cell_h))
             if config.get("grayscale", False):
                 crop_gray = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2GRAY)
                 crop_disp = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2BGR)
             else:
                 crop_disp = crop_resized
-                
-            # On ne dessine PLUS sur crop_disp pour ne pas mordre sur l'image !
-            
+
             x_start = col * cell_w + 10 + (col * 5)
-            y_start = row * (cell_h + 20) + 20 + (row * 5) # +20 pour laisser de la place au texte au-dessus
-            
+            y_start = row * (cell_h + 20) + 20 + (row * 5)
+
             if x_start + cell_w <= 960 and y_start + cell_h <= 540:
-                br_canvas[y_start:y_start+cell_h, x_start:x_start+cell_w] = crop_disp
-                # Dessiner le texte sur le canvas noir, juste au-dessus de l'image
-                label = f"{predicted_class} ({100*confidence:.1f}%)"
+                br_canvas[y_start:y_start + cell_h, x_start:x_start + cell_w] = crop_disp
+                label = f"{predicted_class} ({100 * confidence:.1f}%)"
                 cv2.putText(br_canvas, label, (x_start, y_start - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             crop_idx += 1
-            
-    # Place Top-Right on canvas
+
     tr_img = cv2.resize(draw_frame, (960, 540))
     canvas[0:540, 960:1920] = tr_img
-    
-    # Place Bottom-Right on canvas
     canvas[540:1080, 960:1920] = br_canvas
-    
+
     return canvas
+
+
+def process_frames_batch(
+    frames_buffer,
+    det_predict_fn,
+    det_config,
+    clf_predict_fn,
+    dataset_mean,
+    dataset_std,
+    config,
+    video_writer,
+):
+    """Détection + classification batchée + écriture directe dans la vidéo de sortie."""
+    batch_results = decode_segmentation_and_detect_batch(
+        frames_buffer,
+        det_predict_fn,
+        det_config,
+        conf_threshold=DETECTION_CONF_THRESHOLD,
+        box_aera_min=BOX_AERA_MIN,
+    )
+    frame_predictions_list = classify_batch_detections(
+        frames_buffer,
+        batch_results,
+        clf_predict_fn,
+        dataset_mean,
+        dataset_std,
+        config,
+    )
+
+    for i in range(len(frames_buffer)):
+        _, heatmap_lr, binary_mask_lr = batch_results[i]
+        canvas = build_quadrant_canvas(
+            frames_buffer[i],
+            heatmap_lr,
+            binary_mask_lr,
+            frame_predictions_list[i],
+            config,
+        )
+        video_writer.write(canvas)
+
+    return len(frames_buffer)
 
 if __name__ == "__main__":
     
@@ -537,8 +588,9 @@ if __name__ == "__main__":
     print("✅ Modèles chargés.")
     
     print("⚡ Compilation JAX (JIT)...")
-    det_predict_fn = jax.jit(lambda x: det_model.apply(det_vars, x, training=False))
-    clf_predict_fn = jax.jit(lambda x: clf_model.apply(clf_vars, x, training=False))
+    det_predict_fn = build_det_predict_fn(det_model, det_vars)
+    clf_predict_fn = build_clf_predict_fn(clf_model, clf_vars)
+    warmup_jit_predictors(det_predict_fn, det_config, clf_predict_fn, config)
     print("✅ Compilation terminée.")
 
     # ======================================================
@@ -551,171 +603,76 @@ if __name__ == "__main__":
         sys.exit(1)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    if FRAME_STRIDE > 1:
+        fps = fps / FRAME_STRIDE
     print(f"🎬 {total_frames} frames détectées")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    OUTPUT_VIDEO_PATH = os.path.join(OUTPUT_DIR, "reconstructed_video.mp4")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(
+        OUTPUT_VIDEO_PATH, fourcc, fps, (CANVAS_WIDTH, CANVAS_HEIGHT)
+    )
+    if not video_writer.isOpened():
+        print("❌ ERREUR : Impossible d'ouvrir VideoWriter.")
+        cap.release()
+        sys.exit(1)
 
     frame_id = 0
     saved_count = 0
-    
+
     frames_buffer = []
-    frame_ids_buffer = []
 
     with tqdm(total=total_frames, desc="Traitement vidéo") as pbar:
-
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # Skip frames si stride > 1
             if frame_id % FRAME_STRIDE != 0:
                 frame_id += 1
                 pbar.update(1)
                 continue
 
             frames_buffer.append(frame.copy())
-            frame_ids_buffer.append(frame_id)
 
             if len(frames_buffer) == BATCH_SIZE:
-                # ==================================================
-                # DÉTECTION PAR BATCH
-                # ==================================================
-                batch_results = decode_segmentation_and_detect_batch(
-                    frames_buffer, 
-                    det_predict_fn, det_config, 
-                    conf_threshold=DETECTION_CONF_THRESHOLD,
-                    box_aera_min=BOX_AERA_MIN
-                )
-                
-                for i in range(len(frames_buffer)):
-                    target_frame = frames_buffer[i]
-                    target_idx = frame_ids_buffer[i]
-                    target_detections, target_heatmap, target_binary_mask = batch_results[i]
-                    
-                    # ==================================================
-                    # CONSTRUCTION DU CANVAS 4-QUARTS
-                    # ==================================================
-                    canvas = build_quadrant_canvas(
-                        target_frame,
-                        target_heatmap,
-                        target_binary_mask,
-                        target_detections,
-                        clf_predict_fn,
-                        dataset_mean,
-                        dataset_std,
-                        config
-                    )
-
-                    # ==================================================
-                    # SAUVEGARDE IMAGE
-                    # ==================================================
-                    output_path = os.path.join(OUTPUT_DIR, f"frame_{target_idx:06d}.jpg")
-                    cv2.imwrite(output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-                    saved_count += 1
-                    
-                frames_buffer.clear()
-                frame_ids_buffer.clear()
-
-            frame_id += 1
-            pbar.update(1)
-            
-        # ==================================================
-        # TRAITER LES FRAMES RESTANTES
-        # ==================================================
-        if len(frames_buffer) > 0:
-            batch_results = decode_segmentation_and_detect_batch(
-                frames_buffer, 
-                det_predict_fn, det_config, 
-                conf_threshold=DETECTION_CONF_THRESHOLD,
-                box_aera_min=BOX_AERA_MIN
-            )
-            for i in range(len(frames_buffer)):
-                target_frame = frames_buffer[i]
-                target_idx = frame_ids_buffer[i]
-                target_detections, target_heatmap, target_binary_mask = batch_results[i]
-                
-                canvas = build_quadrant_canvas(
-                    target_frame,
-                    target_heatmap,
-                    target_binary_mask,
-                    target_detections,
+                saved_count += process_frames_batch(
+                    frames_buffer,
+                    det_predict_fn,
+                    det_config,
                     clf_predict_fn,
                     dataset_mean,
                     dataset_std,
-                    config
+                    config,
+                    video_writer,
                 )
+                frames_buffer.clear()
 
-                output_path = os.path.join(OUTPUT_DIR, f"frame_{target_idx:06d}.jpg")
-                cv2.imwrite(output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-                saved_count += 1
-                
+            frame_id += 1
+            pbar.update(1)
+
+        if len(frames_buffer) > 0:
+            saved_count += process_frames_batch(
+                frames_buffer,
+                det_predict_fn,
+                det_config,
+                clf_predict_fn,
+                dataset_mean,
+                dataset_std,
+                config,
+                video_writer,
+            )
             frames_buffer.clear()
-            frame_ids_buffer.clear()
 
     cap.release()
+    video_writer.release()
 
     print("\n✅ Terminé !")
-    print(f"📸 Images sauvegardées : {saved_count}")
+    print(f"📸 Frames traitées : {saved_count}")
     print(f"📂 Dossier de sortie : {OUTPUT_DIR}")
-    
-    
-    # ======================================================
-    # RECONSTRUCTION VIDÉO À PARTIR DES IMAGES
-    # ======================================================
-        
-    print("\n🎬 Reconstruction de la vidéo finale...")
-    
-    cap_original = cv2.VideoCapture(VIDEO_PATH)
-    fps = cap_original.get(cv2.CAP_PROP_FPS)
-    cap_original.release()
-    
-    # Récupérer les dimensions à partir de la première image générée
-    # (car le canvas des 4 quadrants force le 1920x1080)
-    image_files = sorted([
-        f for f in os.listdir(OUTPUT_DIR)
-        if f.endswith(".jpg")
-    ])
-    
-    if len(image_files) == 0:
-        print("❌ Aucune image générée pour la reconstruction.")
-        sys.exit(1)
-        
-    first_frame = cv2.imread(os.path.join(OUTPUT_DIR, image_files[0]))
-    height, width = first_frame.shape[:2]
-    
-    # Codec robuste
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    
-    OUTPUT_VIDEO_PATH = os.path.join(OUTPUT_DIR, "reconstructed_video.mp4")
-    
-    video_writer = cv2.VideoWriter(
-        OUTPUT_VIDEO_PATH,
-        fourcc,
-        fps,
-        (width, height)
-    )
-    
-    if not video_writer.isOpened():
-        print("❌ ERREUR : Impossible d'ouvrir VideoWriter.")
-        exit()
-    
-    # image_files est déjà chargé plus haut
-    
-    for img_name in tqdm(image_files, desc="Assemblage vidéo"):
-        img_path = os.path.join(OUTPUT_DIR, img_name)
-        frame = cv2.imread(img_path)
-    
-        if frame is None:
-            continue
-    
-        video_writer.write(frame)
-    
-    video_writer.release()
-    
-    # Vérification finale
     if os.path.exists(OUTPUT_VIDEO_PATH):
-        print("✅ Vidéo reconstruite avec succès !")
-        print(f"🎥 Fichier : {OUTPUT_VIDEO_PATH}")
+        print(f"🎥 Vidéo : {OUTPUT_VIDEO_PATH}")
     else:
         print("❌ La vidéo n'a pas été créée.")
