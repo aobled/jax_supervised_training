@@ -52,8 +52,8 @@ _DILATE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection valide (objectness + class) target 0.6
-BATCH_SIZE = 24                         # Batch détection (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
-CLF_BATCH_SIZE = 24                     # Batch classification fixe (évite recompilation cuDNN)
+BATCH_SIZE = 32                         # Batch détection (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
+CLF_BATCH_SIZE = 32                     # Batch classification fixe (évite recompilation cuDNN)
 
 #VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
 VIDEO_PATH = "/home/aobled/Downloads/tmp 250th USA.mp4"
@@ -183,7 +183,10 @@ def build_det_predict_fn(det_model, det_vars):
 def build_clf_predict_fn(clf_model, clf_vars):
     @jax.jit
     def predict_fn(batch_images):
-        return clf_model.apply(clf_vars, batch_images, training=False)
+        logits = clf_model.apply(clf_vars, batch_images, training=False)
+        probs = jax.nn.softmax(logits, axis=-1)
+        pred_indices = jnp.argmax(probs, axis=-1)
+        return probs, pred_indices
     return predict_fn
 
 
@@ -201,7 +204,8 @@ def warmup_jit_predictors(det_predict_fn, det_config, clf_predict_fn, config):
     print(f"   Warmup détection (batch={BATCH_SIZE})...")
     det_predict_fn(det_dummy).block_until_ready()
     print(f"   Warmup classification (batch={CLF_BATCH_SIZE})...")
-    clf_predict_fn(clf_dummy).block_until_ready()
+    probs, _ = clf_predict_fn(clf_dummy)
+    probs.block_until_ready()
 
 
 def predict_crops_batch(crop_imgs, predict_fn, mean, std, config):
@@ -222,13 +226,14 @@ def predict_crops_batch(crop_imgs, predict_fn, mean, std, config):
             axis=0,
         )
         padded_np, valid_n = _pad_batch_np(batch_np, CLF_BATCH_SIZE)
-        logits = predict_fn(jnp.array(padded_np))
-        probs = jax.nn.softmax(logits[:valid_n], axis=-1)
-        pred_indices = jnp.argmax(probs, axis=-1)
+        probs, pred_indices = predict_fn(jnp.array(padded_np))
+        
+        probs_np = np.array(probs[:valid_n])
+        pred_indices_np = np.array(pred_indices[:valid_n])
 
         for i in range(valid_n):
-            idx = int(pred_indices[i])
-            all_results.append((names[idx], float(probs[i, idx])))
+            idx = int(pred_indices_np[i])
+            all_results.append((names[idx], float(probs_np[i, idx])))
 
     return all_results
 
@@ -481,18 +486,21 @@ def build_quadrant_canvas(target_frame, target_heatmap_lr, target_binary_mask_lr
     canvas[540:1080, 0:960] = bl_img
 
     # 3. Top-Right: Annotated + overlay heatmap HD (upscale uniquement pour la viz)
-    heatmap_hd = cv2.resize(target_heatmap_lr, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
-    heatmap_uint8 = np.clip(heatmap_hd * 255, 0, 255).astype(np.uint8)
+    # OPTIMISATION : On fait tout directement en 960x540 au lieu de 1920x1080 !
+    tr_img = cv2.resize(target_frame, (960, 540))
+    
+    heatmap_md = cv2.resize(target_heatmap_lr, (960, 540), interpolation=cv2.INTER_LINEAR)
+    heatmap_uint8 = np.clip(heatmap_md * 255, 0, 255).astype(np.uint8)
     heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
     heatmap_color[heatmap_uint8 <= 40] = 0
 
-    draw_frame = cv2.addWeighted(target_frame, 1.0, heatmap_color, 0.45, 0)
+    cv2.addWeighted(tr_img, 1.0, heatmap_color, 0.45, 0, dst=tr_img)
 
-    binary_mask_hd = cv2.resize(
-        target_binary_mask_lr, (w_orig, h_orig), interpolation=cv2.INTER_NEAREST
+    binary_mask_md = cv2.resize(
+        target_binary_mask_lr, (960, 540), interpolation=cv2.INTER_NEAREST
     )
-    contours, _ = cv2.findContours(binary_mask_hd, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(draw_frame, contours, -1, (255, 255, 255), 1)
+    contours, _ = cv2.findContours(binary_mask_md, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(tr_img, contours, -1, (255, 255, 255), 1)
 
     # 4. Bottom-Right: Classification Crops (prédictions déjà calculées)
     br_canvas = np.zeros((540, 960, 3), dtype=np.uint8)
@@ -502,12 +510,20 @@ def build_quadrant_canvas(target_frame, target_heatmap_lr, target_binary_mask_lr
     cell_w = 128
     cell_h = 128
 
+    scale_x = 960 / w_orig
+    scale_y = 540 / h_orig
+
     for (x1, y1, x2, y2, det_score), crop, (predicted_class, confidence) in frame_predictions:
         color = (0, 255, 0) if predicted_class in TARGET_CLASS_LIST else (0, 0, 255)
         label = f"{predicted_class}"
-        cv2.rectangle(draw_frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(draw_frame, label, (x1, max(y1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        # Dessin sur Top-Right (tr_img) avec coordonnées redimensionnées
+        x1_md, y1_md = int(x1 * scale_x), int(y1 * scale_y)
+        x2_md, y2_md = int(x2 * scale_x), int(y2 * scale_y)
+        cv2.rectangle(tr_img, (x1_md, y1_md), (x2_md, y2_md), color, 2)
+        cv2.putText(tr_img, label, (x1_md, max(y1_md - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+        # Dessin sur Bottom-Right
         if crop_idx < grid_cols * grid_rows:
             col = crop_idx % grid_cols
             row = crop_idx // grid_cols
@@ -528,7 +544,6 @@ def build_quadrant_canvas(target_frame, target_heatmap_lr, target_binary_mask_lr
                 cv2.putText(br_canvas, label, (x_start, y_start - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             crop_idx += 1
 
-    tr_img = cv2.resize(draw_frame, (960, 540))
     canvas[0:540, 960:1920] = tr_img
     canvas[540:1080, 960:1920] = br_canvas
 
