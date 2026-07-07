@@ -2,6 +2,7 @@ import sys
 import os
 import threading
 import queue
+import concurrent.futures
 
 # Réduit les crashs cuDNN autotune (GTX 1660 Ti) — doit être défini avant import jax
 os.environ.setdefault(
@@ -364,22 +365,23 @@ def decode_segmentation_and_detect_batch(frames_bgr, predict_fn, config_model, c
     target_w, target_h = target_size
     grayscale = config_model.get("grayscale", True)
 
-    batch_input = []
-    orig_shapes = []
-
-    for img_bgr in frames_bgr:
+    def preprocess_frame(img_bgr):
         h_orig, w_orig = img_bgr.shape[:2]
-        orig_shapes.append((h_orig, w_orig))
-
         img_resized = cv2.resize(img_bgr, target_size)
         if grayscale:
             img_input = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
             img_input = img_input.astype(np.float32) / 255.0
-            batch_input.append(img_input[:, :, np.newaxis])
+            return (img_input[:, :, np.newaxis], (h_orig, w_orig))
         else:
             img_input = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
             img_input = img_input.astype(np.float32) / 255.0
-            batch_input.append(img_input)
+            return (img_input, (h_orig, w_orig))
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        preprocessed = list(executor.map(preprocess_frame, frames_bgr))
+        
+    batch_input = [p[0] for p in preprocessed]
+    orig_shapes = [p[1] for p in preprocessed]
 
     img_jax_batch = jnp.array(np.stack(batch_input, axis=0))
     n_frames = len(frames_bgr)
@@ -392,9 +394,7 @@ def decode_segmentation_and_detect_batch(frames_bgr, predict_fn, config_model, c
 
     preds = predict_fn(img_jax_batch)
     preds_np = np.array(preds)[:n_frames]
-    results = []
-
-    for i in range(n_frames):
+    def postprocess_frame(i):
         h_orig, w_orig = orig_shapes[i]
         pred_mask = preds_np[i, :, :, 0]
 
@@ -434,8 +434,11 @@ def decode_segmentation_and_detect_batch(frames_bgr, predict_fn, config_model, c
             final_detections.append((x1, y1, x2, y2, score))
 
         final_detections = sorted(final_detections, key=lambda b: (b[1], b[0]))
-        results.append((final_detections, pred_mask, binary_mask_lr))
+        return (final_detections, pred_mask, binary_mask_lr)
 
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(postprocess_frame, range(n_frames)))
+        
     return results
 
 
@@ -580,17 +583,18 @@ def process_frames_batch(
         config,
     )
 
-    canvases = []
-    for i in range(len(frames_buffer)):
+    def process_single_canvas(i):
         _, heatmap_lr, binary_mask_lr = batch_results[i]
-        canvas = build_quadrant_canvas(
+        return build_quadrant_canvas(
             frames_buffer[i],
             heatmap_lr,
             binary_mask_lr,
             frame_predictions_list[i],
             config,
         )
-        canvases.append(canvas)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        canvases = list(executor.map(process_single_canvas, range(len(frames_buffer))))
 
     return canvases
 
