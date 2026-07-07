@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import queue
 
 # Réduit les crashs cuDNN autotune (GTX 1660 Ti) — doit être défini avant import jax
 os.environ.setdefault(
@@ -560,9 +562,8 @@ def process_frames_batch(
     dataset_mean,
     dataset_std,
     config,
-    video_writer,
 ):
-    """Détection + classification batchée + écriture directe dans la vidéo de sortie."""
+    """Détection + classification batchée + retourne les canvas générés."""
     batch_results = decode_segmentation_and_detect_batch(
         frames_buffer,
         det_predict_fn,
@@ -579,6 +580,7 @@ def process_frames_batch(
         config,
     )
 
+    canvases = []
     for i in range(len(frames_buffer)):
         _, heatmap_lr, binary_mask_lr = batch_results[i]
         canvas = build_quadrant_canvas(
@@ -588,9 +590,29 @@ def process_frames_batch(
             frame_predictions_list[i],
             config,
         )
-        video_writer.write(canvas)
+        canvases.append(canvas)
 
-    return len(frames_buffer)
+    return canvases
+
+def reader_thread_func(cap, input_queue, frame_stride):
+    frame_id = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            input_queue.put(None)  # Signal de fin
+            break
+            
+        if frame_id % frame_stride == 0:
+            input_queue.put(frame.copy())
+            
+        frame_id += 1
+
+def writer_thread_func(video_writer, output_queue):
+    while True:
+        canvas = output_queue.get()
+        if canvas is None:
+            break
+        video_writer.write(canvas)
 
 if __name__ == "__main__":
     
@@ -636,26 +658,31 @@ if __name__ == "__main__":
         cap.release()
         sys.exit(1)
 
-    frame_id = 0
+    # Initialisation des Queues et Threads
+    input_queue = queue.Queue(maxsize=BATCH_SIZE * 3)
+    output_queue = queue.Queue(maxsize=BATCH_SIZE * 3)
+
+    reader_thread = threading.Thread(target=reader_thread_func, args=(cap, input_queue, FRAME_STRIDE))
+    writer_thread = threading.Thread(target=writer_thread_func, args=(video_writer, output_queue))
+    
+    reader_thread.start()
+    writer_thread.start()
+
     saved_count = 0
-
     frames_buffer = []
+    
+    total_to_process = (total_frames + FRAME_STRIDE - 1) // FRAME_STRIDE
 
-    with tqdm(total=total_frames, desc="Traitement vidéo") as pbar:
+    with tqdm(total=total_to_process, desc="Inférence GPU") as pbar:
         while True:
-            ret, frame = cap.read()
-            if not ret:
+            frame = input_queue.get()
+            if frame is None:
                 break
 
-            if frame_id % FRAME_STRIDE != 0:
-                frame_id += 1
-                pbar.update(1)
-                continue
-
-            frames_buffer.append(frame.copy())
+            frames_buffer.append(frame)
 
             if len(frames_buffer) == BATCH_SIZE:
-                saved_count += process_frames_batch(
+                canvases = process_frames_batch(
                     frames_buffer,
                     det_predict_fn,
                     det_config,
@@ -663,15 +690,16 @@ if __name__ == "__main__":
                     dataset_mean,
                     dataset_std,
                     config,
-                    video_writer,
                 )
+                for canvas in canvases:
+                    output_queue.put(canvas)
+                    
+                saved_count += len(frames_buffer)
+                pbar.update(len(frames_buffer))
                 frames_buffer.clear()
 
-            frame_id += 1
-            pbar.update(1)
-
         if len(frames_buffer) > 0:
-            saved_count += process_frames_batch(
+            canvases = process_frames_batch(
                 frames_buffer,
                 det_predict_fn,
                 det_config,
@@ -679,10 +707,20 @@ if __name__ == "__main__":
                 dataset_mean,
                 dataset_std,
                 config,
-                video_writer,
             )
+            for canvas in canvases:
+                output_queue.put(canvas)
+                
+            saved_count += len(frames_buffer)
+            pbar.update(len(frames_buffer))
             frames_buffer.clear()
 
+    # Signal de fin pour le writer
+    output_queue.put(None)
+    
+    reader_thread.join()
+    writer_thread.join()
+    
     cap.release()
     video_writer.release()
 
