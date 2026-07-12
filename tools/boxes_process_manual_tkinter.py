@@ -1065,7 +1065,7 @@ class PhotoViewer:
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
         from dataset_configs import get_dataset_config
-        from bounding_boxes_with_classification_from_video_generation import (
+        from inference_utils import (
             load_detection_model, load_jax_model
         )
         
@@ -1091,7 +1091,7 @@ class PhotoViewer:
         from PIL import Image, ImageTk
         import sys
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from bounding_boxes_with_classification_from_video_generation import (
+        from inference_utils import (
             decode_segmentation_and_detect_batch, predict_crops_batch, get_iou
         )
         
@@ -1279,7 +1279,7 @@ CROP_HEIGHT = 4  # Hauteur en pixels à croper (0 = désactivé)
 AUTO_CROP = False  # Croper automatiquement lors de la sauvegarde (touche 's')
 CATEGORY_NAME = 'unknown'
 if __name__ == "__main__":
-    root_folder = "/home/aobled/Downloads/tmp_multi/a10"
+    root_folder = "/home/aobled/Downloads/tmp_multi/unknown"
     viewer = PhotoViewer(root_folder, category_name=CATEGORY_NAME, crop_height=CROP_HEIGHT, auto_crop=AUTO_CROP)
 
 

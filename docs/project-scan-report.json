@@ -1,0 +1,47 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {"started": "2026-07-12T11:51:00Z", "last_updated": "2026-07-12T12:55:00Z", "completed": "2026-07-12T12:55:00Z"},
+  "mode": "initial_scan",
+  "scan_level": "deep",
+  "project_root": "/home/aobled/Desktop/Development/JAX_Detection",
+  "project_knowledge": "/home/aobled/Desktop/Development/JAX_Detection/docs",
+  "repository_type": "monolith",
+  "project_parts": [
+    {
+      "part_id": "jax_detection",
+      "root_path": "/home/aobled/Desktop/Development/JAX_Detection",
+      "project_type_id": "data",
+      "display_name": "JAX_Detection (custom JAX/Flax training pipeline, approximate fit to 'data' type)"
+    }
+  ],
+  "completed_steps": [
+    {"step": "step_1", "status": "completed", "timestamp": "2026-07-12T12:05:00Z", "summary": "Classified as monolith, 1 part (jax_detection), approximate project_type_id=data, confirmed by user"},
+    {"step": "step_2", "status": "completed", "timestamp": "2026-07-12T12:20:00Z", "summary": "Found 12 existing docs in docs/. User provided refactor context (see findings.user_context)."},
+    {"step": "step_3", "status": "completed", "timestamp": "2026-07-12T12:25:00Z", "summary": "Tech stack: JAX/Flax/Optax on Python, tf.data for input pipeline. Strategy+Factory+DI pattern confirmed."},
+    {"step": "step_4", "status": "completed", "timestamp": "2026-07-12T12:35:00Z", "summary": "Dead code audit: 15/22 model_library.py architectures unreferenced; 6 inference functions duplicated & divergent across 3-5 files; train_detection.py confirmed vestige by user. Written to dead-code-and-duplication-audit.md"},
+    {"step": "step_5", "status": "completed", "timestamp": "2026-07-12T12:40:00Z", "summary": "Annotated source tree written to source-tree-analysis.md"},
+    {"step": "step_6", "status": "completed", "timestamp": "2026-07-12T12:45:00Z", "summary": "Dev/deployment guide written (no CI/CD, no packaging, no tests found) to development-guide.md"},
+    {"step": "step_8", "status": "completed", "timestamp": "2026-07-12T12:50:00Z", "summary": "architecture.md written, synthesizes gap vs strat_global.md"},
+    {"step": "step_9", "status": "completed", "timestamp": "2026-07-12T12:52:00Z", "summary": "project-overview.md written"},
+    {"step": "step_10", "status": "completed", "timestamp": "2026-07-12T12:55:00Z", "summary": "index.md written, no incomplete-doc markers"},
+    {"step": "step_11", "status": "completed", "timestamp": "2026-07-12T12:55:00Z", "summary": "Validation: no (To be generated) markers found, all planned docs present"},
+    {"step": "step_12", "status": "completed", "timestamp": "2026-07-12T12:55:00Z", "summary": "Workflow complete"}
+  ],
+  "current_step": "completed",
+  "findings": {
+    "project_classification": "Monolith Python/JAX project, no client/server split, no standard packaging (no requirements.txt/pyproject.toml). Core files: dataset_configs.py, data_management.py, model_library.py, trainer.py, task_strategies.py, main.py, reporting.py, checkpoint_manager.py.",
+    "existing_docs_count": 12,
+    "user_context": "Projet brownfield JAX de détection/classification d'images d'avion. Code générique piloté par dataset_configs.py pour supporter plusieurs typologies de projets (configs actives: FIGHTERJET_CLASSIFICATION, FIGHTERJET_DETECTION ; config JAX_KEPLER = exemple non lié à l'aéronautique). Objectif refactor: éliminer le code mort, retirer les copies en dur de méthodes, conserver un socle de code commun/mutualisé, la modularité et la performance. Démarche voulue: rétro-documentation BMAD d'abord, proposition de refactor à valider, implémentation ensuite.",
+    "dead_code_summary": "15/22 model_library.py architectures unreferenced by any config. 6 inference functions (load_jax_model, load_detection_model, predict_crop, get_iou, non_max_suppression, _preprocess_crop_to_hwc) duplicated & divergent across 3-5 files (root + tools/). train_detection.py confirmed legacy vestige (pre-merge era JAX_Detection/JAX_Classification), user approved archiving."
+  },
+  "outputs_generated": [
+    "project-scan-report.json",
+    "project-overview.md",
+    "architecture.md",
+    "source-tree-analysis.md",
+    "development-guide.md",
+    "dead-code-and-duplication-audit.md",
+    "index.md"
+  ],
+  "resume_instructions": "Workflow complete. Next: brownfield PRD workflow, pointed at docs/index.md."
+}

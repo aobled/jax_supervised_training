@@ -7,13 +7,12 @@ import pandas as pd
 import jax
 import jax.numpy as jnp
 from tqdm import tqdm
-import pickle
 
 # --- Imports locaux ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataset_configs import get_dataset_config
-from bounding_boxes_with_classification_from_video_generation import (
+from inference_utils import (
     load_detection_model, decode_segmentation_and_detect_batch, get_iou
 )
 

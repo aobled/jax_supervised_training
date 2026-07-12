@@ -58,7 +58,7 @@ class Reporter:
             # Nouvelle structure unifiée JAX_Detection
             params = model_data['params']
             batch_stats = model_data.get('batch_stats', {})
-            model_name = model_data['config'].get('model_name', 'sophisticated_cnn')
+            model_name = model_data['config'].get('model_name', 'sophisticated_cnn_128_plus')
             num_classes = model_data['config'].get('num_classes', len(self.class_names))
         elif 'model_state' in model_data:
             # Ancienne Structure de main.py
@@ -69,17 +69,17 @@ class Reporter:
             # Utiliser les infos du modèle sauvegardé
             if 'model_info' in model_data:
                 model_info = model_data['model_info']
-                model_name = model_info.get('model_name', 'sophisticated_cnn')
+                model_name = model_info.get('model_name', 'sophisticated_cnn_128_plus')
                 num_classes = model_info.get('num_classes', 2)
             else:
                 # Fallback pour anciens fichiers
-                model_name = model_data.get('model_name', 'sophisticated_cnn')
+                model_name = model_data.get('model_name', 'sophisticated_cnn_128_plus')
                 num_classes = model_data.get('num_classes', 2)
         else:
             # Structure alternative (très ancienne)
             params = model_data['params']
             batch_stats = model_data.get('batch_stats', {})
-            model_name = model_data.get('model_name', 'sophisticated_cnn')
+            model_name = model_data.get('model_name', 'sophisticated_cnn_128_plus')
             num_classes = model_data.get('num_classes', 2)
         
         print(f"🔍 Modèle sauvegardé: {model_name}, {num_classes} classes")
@@ -419,12 +419,12 @@ class Reporter:
             params = model_data['model_state']['params']
             batch_stats = model_data['model_state'].get('batch_stats', {})
             model_info = model_data.get('model_info', {})
-            model_name = model_info.get('model_name', 'sophisticated_cnn')
+            model_name = model_info.get('model_name', 'sophisticated_cnn_128_plus')
             num_classes = model_info.get('num_classes', len(self.class_names))
         else:
             params = model_data['params']
             batch_stats = model_data.get('batch_stats', {})
-            model_name = model_data.get('model_name', 'sophisticated_cnn')
+            model_name = model_data.get('model_name', 'sophisticated_cnn_128_plus')
             num_classes = model_data.get('num_classes', len(self.class_names))
         
         print(f"📊 Modèle: {model_name}, {num_classes} classes")

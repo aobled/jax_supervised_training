@@ -7,107 +7,36 @@ import pandas as pd
 import jax
 import jax.numpy as jnp
 from tqdm import tqdm
-import pickle
 
 # --- Imports locaux ---
 # Ajout du répertoire parent pour importer les modules du projet
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataset_configs import get_dataset_config
-from model_library import get_model
+from inference_utils import load_jax_model, build_predict_fn, _preprocess_crop_to_hwc
 
 # --- Configuration ---
 DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/classification'
 CONFIG_NAME = "FIGHTERJET_CLASSIFICATION"
 BATCH_SIZE = 64
 
-def _preprocess_crop_to_hwc(crop_img, mean, std, config):
-    """Prépare un crop BGR en tenseur (H, W, C) float32."""
-    target_size = config["image_size"]
-    grayscale = config.get("grayscale", False)
-    
-    crop_resized = cv2.resize(crop_img, target_size)
-    
-    if grayscale:
-        img_input = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2GRAY)
-        img_input = img_input.astype(np.float32) / 255.0
-        img_normalized = (img_input - mean) / std
-        return img_normalized[:, :, np.newaxis]
-        
-    img_input = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2RGB)
-    img_input = img_input.astype(np.float32) / 255.0
-    img_normalized = (img_input - mean) / std
-    return img_normalized
+def run_audit():
+    config = get_dataset_config(CONFIG_NAME)
+    class_names = config["class_names"]
 
-def build_predict_fn(model, variables):
-    """Compile la fonction d'inférence avec JIT pour le traitement par batch."""
-    @jax.jit
-    def predict_fn(batch_images):
-        logits = model.apply(variables, batch_images, training=False, mutable=False)
-        return logits
-    return predict_fn
-
-def load_classification_model(config):
-    """Charge l'architecture du modèle, ses poids .pkl et ses statistiques de normalisation."""
-    pkl_path = config.get("checkpoint_path", "best_model_classification.pkl")
-    
-    # Résoudre le chemin relatif
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)
-    pkl_path_abs = os.path.join(parent_dir, pkl_path)
-    
-    if not os.path.exists(pkl_path_abs):
-        raise FileNotFoundError(f"Modèle introuvable : {pkl_path_abs}")
-        
-    print(f"📦 Chargement des poids depuis {pkl_path_abs}...")
-    with open(pkl_path_abs, 'rb') as f:
-        model_data = pickle.load(f)
-        
-    # Compatibilité entre les anciens et nouveaux formats de sauvegarde
-    if 'model_state' in model_data:
-        params = model_data['model_state']['params']
-        batch_stats = model_data['model_state'].get('batch_stats', {})
-        model_name = model_data.get('model_info', {}).get('model_name', config["model_name"])
-    else:
-        params = model_data['params']
-        batch_stats = model_data.get('batch_stats', {})
-        model_name = model_data.get('model_name', config["model_name"])
-    
-    model = get_model(model_name, num_classes=config["num_classes"], dropout_rate=0.0)
-    variables = {'params': params, 'batch_stats': batch_stats}
-    
-    # Chargement des stats de normalisation
-    mean, std = 0.5, 0.5 # Valeurs par défaut
-    mean_std_path = config.get("mean_std_path", "./data/chunks/dataset_chunked_meanstd.npz")
-    mean_std_path_abs = os.path.join(parent_dir, mean_std_path)
-    
-    if os.path.exists(mean_std_path_abs):
-        with np.load(mean_std_path_abs) as data:
-            mean = data['mean']
-            std = data['std']
-            
-            if config.get("grayscale", False):
-                if isinstance(mean, np.ndarray) and mean.size == 3:
-                     mean = np.mean(mean)
-                     std = np.mean(std)
-                     
+    # Composition explicite (AD-1) : load_classification_model n'est pas migrée comme
+    # 12e fonction nommée — charger le modèle et construire le predict_fn prêt à l'emploi
+    # devient une composition directe au site d'appel.
+    checkpoint_path = config.get("checkpoint_path", "best_model_classification.pkl")
+    model, variables, mean, std = load_jax_model(checkpoint_path, config)
     predict_fn = build_predict_fn(model, variables)
-    
-    # Warmup JIT
+
     print("🔥 Compilation JIT du graphe (Warmup)...")
     dummy_shape = (1, config["image_size"][0], config["image_size"][1], 1 if config.get("grayscale", False) else 3)
     dummy_input = jnp.zeros(dummy_shape, dtype=jnp.float32)
     _ = predict_fn(dummy_input)
     print("✅ Modèle prêt pour l'inférence par batch.")
-    
-    return predict_fn, mean, std
 
-def run_audit():
-    config = get_dataset_config(CONFIG_NAME)
-    class_names = config["class_names"]
-    
-    predict_fn, mean, std = load_classification_model(config)
-    
     results = []
     crop_batch = []
     meta_batch = []

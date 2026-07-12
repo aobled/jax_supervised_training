@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 import jax
 import jax.numpy as jnp
-import pickle
 
 # Configuration:
 IMAGE_PATH = "/home/aobled/Downloads/test_image.png" # Remplacer par l'image de test avec les gros et petits avions
@@ -14,29 +13,7 @@ HEATMAP_THRESHOLD = 0.7 # 30% de confiance minimum pour binariser la chaleur
 
 # Ajouter le répertoire racine
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from model_library import get_model
-
-def load_detection_model(checkpoint_path):
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"Checkpoint détection non trouvé: {checkpoint_path}")
-
-    print(f"🔍 Chargement du modèle DÉTECTION depuis {checkpoint_path}...")
-    with open(checkpoint_path, 'rb') as f:
-        data_model = pickle.load(f)
-
-    params = data_model['params']
-    config_model = data_model.get('config', {})
-    model_name = config_model.get('model_name', 'aircraft_detector_v7_advanced')
-    
-    print(f"   Modèle détecté: {model_name}")
-    model = get_model(model_name, dropout_rate=0.0) 
-    
-    batch_stats = data_model.get('batch_stats', {})
-    if not batch_stats and 'model_state' in data_model:
-        batch_stats = data_model['model_state'].get('batch_stats', {})
-             
-    variables = {'params': params, 'batch_stats': batch_stats}
-    return model, variables, config_model
+from inference_utils import load_detection_model
 
 def detect_by_contouring(img_bgr, model, variables, config_model, threshold=0.3):
     h_orig, w_orig = img_bgr.shape[:2]
