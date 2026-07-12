@@ -3,7 +3,14 @@ Configuration centralisée pour tous les datasets
 Permet de gérer facilement plusieurs datasets avec leurs paramètres spécifiques
 """
 
+import os
+
 import numpy as np
+
+# Racine des datasets chunkés (.npz). Local par défaut ; sur Colab, définir
+# JAX_DETECTION_DATA_ROOT (ex: /content/drive/MyDrive/JAX_Detection/data)
+# AVANT d'importer ce module.
+DATA_ROOT = os.environ.get("JAX_DETECTION_DATA_ROOT", "/home/aobled/Documents/data")
 
 
 def validate_config(config_name, config):
@@ -42,7 +49,7 @@ DATASET_CONFIGS = {
         "num_classes": 32,
         "class_names": ['a10', 'a4', 'a400m', 'alphajet', 'b1b', 'b2', 'b52', 'c130', 'c17', 'f117', 'f14', 'f15', 'f16', 'f18', 'f22', 'f35', 'f4', 'flanker', 'gripen', 'harrier', 'hawk', 'hawkeye', 'mig29', 'mirage2000', 'mustang', 'rafale', 'spitfire', 'sr71', 'su57', 'tornado', 'typhoon', 'v22'],
         "data_dir": "/home/aobled/Downloads/_balanced_dataset_split",
-        "output_prefix": "./data/chunks/classification/dataset_classification",
+        "output_prefix": f"{DATA_ROOT}/chunks/classification",
         "chunk_size": 30000,
         "image_size": (128, 128),
         "grayscale": True,  # ✅ GRAYSCALE (3× plus rapide, même accuracy)
@@ -59,7 +66,7 @@ DATASET_CONFIGS = {
         
         "mean": None,
         "std": None,
-        "mean_std_path": "./data/chunks/classification/dataset_classification_meanstd.npz",
+        "mean_std_path": f"{DATA_ROOT}/chunks/classification/dataset_classification_meanstd.npz",
         
         # === Modèle ===
         "model_name": "sophisticated_cnn_128_plus",  # ✅ OPTIMAL: Version optimisée+ (4M params, 88% val)
@@ -331,7 +338,7 @@ DATASET_CONFIGS = {
         # === Données ===
         "num_classes": 1,  # Single Class Object Detection
         "class_names": ['aircraft'],
-        "output_prefix": "./data/chunks/detection/dataset_detection",
+        "output_prefix": f"{DATA_ROOT}/chunks/detection",
         "image_size": (224, 224),
         "grayscale": True,
         "max_boxes": 20,  # 🔥 Images avec plus de 20 boxes seront ignorées (évite padding excessif et faux négatifs)

@@ -2,10 +2,12 @@ import pickle
 import sys
 import os
 
-filename = "best_model_detection.pkl"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+filename = os.path.join(parent_dir, "best_model_detection.pkl")
 
 if not os.path.exists(filename):
-    print(f"File {filename} not found in current directory.")
+    print(f"File {filename} not found.")
     sys.exit(1)
 
 print(f"Loading {filename}...")

@@ -58,10 +58,10 @@ DETECTION_CONF_THRESHOLD = 0.8          # Seuil pour considérer une détection 
 BATCH_SIZE = 32                         # Batch détection (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
 CLF_BATCH_SIZE = 32                     # Batch classification fixe (évite recompilation cuDNN)
 
-#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-VIDEO_PATH = "/home/aobled/Downloads/tmp 250th USA.mp4"
-#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-TARGET_CLASS_LIST = ["f35", "f18","v22","f22", "b1b", "b2", "f16", "c17"]
+VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+#VIDEO_PATH = "/home/aobled/Downloads/F-16 Falcons Mid-Air Refueling.mp4"
+#TARGET_CLASS_LIST = ["f16"]
 
 # 3. Chargement de la config dataset
 try:
@@ -229,8 +229,15 @@ def predict_crops_batch(crop_imgs, predict_fn, mean, std, config):
             axis=0,
         )
         padded_np, valid_n = _pad_batch_np(batch_np, CLF_BATCH_SIZE)
-        probs, pred_indices = predict_fn(jnp.array(padded_np))
-        
+        prediction_output = predict_fn(jnp.array(padded_np))
+
+        if isinstance(prediction_output, tuple) and len(prediction_output) == 2:
+            probs, pred_indices = prediction_output
+        else:
+            logits = prediction_output
+            probs = jax.nn.softmax(logits, axis=-1)
+            pred_indices = jnp.argmax(probs, axis=-1)
+
         probs_np = np.array(probs[:valid_n])
         pred_indices_np = np.array(pred_indices[:valid_n])
 
