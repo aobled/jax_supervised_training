@@ -434,3 +434,87 @@ Deux déviations mineures aux AC telles qu'écrites ci-dessus, découvertes et a
 
 - **Story 2.2** dit que les 3 configs survivantes "restent inchangées". En pratique, `FIGHTERJET_DETECTION.output_prefix` a été corrigé (`f"{DATA_ROOT}/chunks/detection"` → `f"{DATA_ROOT}/chunks/detection/dataset_detection"`) — un mismatch pré-existant avec le layout réel des chunks (local et Colab/Drive), révélé par la suppression de `FIGHTERJET_DETECTION_SOPHISTICATED` (dont l'`output_prefix` masquait le problème). Corrigé avec l'accord explicite de l'utilisateur. Voir `2-2-purge-dataset-configs-py.md`.
 - **Story 1.3** ne liste pas `DETECTION_IMAGE_SIZE` dans les imports attendus de `bounding_boxes_with_classification_from_video_generation.py`. En pratique, cette constante est importée (au lieu d'être redéfinie localement) pour respecter AD-1 ("aucune redéfinition locale, même sous un autre nom"), plutôt que de dupliquer la valeur `(224, 224)`. Voir `1-3-migration-bounding-boxes-with-classification-from-video-generation-py.md`.
+
+## Epic 4: Nettoyage technique post-refactor
+
+Trois corrections techniques ponctuelles issues du backlog de la rétrospective Epic 1-3 (2026-07-12), traitées avec le même niveau de rigueur (baseline/vérification, dev notes) mais sans cérémonie PRD/Architecture complète — aucune n'introduit de nouvelle décision produit ou d'architecture.
+**FRs covered:** aucune (hors scope FR1-FR10 du PRD refactor initial ; items de maintenance identifiés post-cycle)
+
+### Story 4.1: Suppression du code Letterbox résiduel
+
+As a mainteneur du repo,
+I want supprimer le code Letterbox devenu obsolète/cassé et corriger la documentation trompeuse restante,
+so that le repo ne contienne plus de script non-fonctionnel ni de docstring qui décrit un comportement différent du code réel.
+
+**Acceptance Criteria:**
+
+**Given** `generate_letterbox_dataset.py` importe `process_dataset_letterbox` et `balance_and_split_dataset` depuis `fighterjet_classification_dataset_tools.py`
+**When** on vérifie l'existence de ces deux fonctions dans tout le repo
+**Then** elles n'existent nulle part — ce script est déjà non-fonctionnel (lèverait une `ImportError` dès sa première ligne exécutée)
+**And** le script est supprimé intégralement (récupérable via l'historique git)
+
+**Given** `fighterjet_detection_dataset_tools.py` (docstring de la fonction de traitement détection) affirme "2. Applique Letterbox"
+**When** le code réel juste en dessous effectue un "STRETCHED RESIZING (au lieu de Letterbox)"
+**Then** le docstring est corrigé pour refléter fidèlement le comportement réel du code
+
+### Story 4.2: Correction des warnings Colab (absl/CUDA)
+
+As a utilisateur lançant l'entraînement sur Colab,
+I want ne plus voir de warnings alarmants liés à CUDA/absl au démarrage,
+so that je puisse distinguer un vrai problème d'un bruit de log cosmétique.
+
+**Acceptance Criteria:**
+
+**Given** `data_management.py` importe `tensorflow` uniquement pour le pipeline `tf.data` (chargement CPU, aucun calcul GPU requis côté TF — JAX gère seul le calcul GPU pour l'entraînement)
+**When** TensorFlow est importé
+**Then** TF est explicitement configuré pour ne pas rechercher de GPU (`tf.config.set_visible_devices([], 'GPU')`), rendant ce choix intentionnel plutôt qu'un échec d'initialisation CUDA affiché comme warning ("Could not find cuda drivers", "failed call to cuInit")
+
+**Given** le warning `absl::InitializeLog()` apparaît avant toute sortie applicative
+**When** on analyse son origine
+**Then** il est documenté comme non-actionnable côté code applicatif — le message indique par construction des logs émis *avant* l'initialisation du logging (déjà en amont de `TF_CPP_MIN_LOG_LEVEL`, déjà positionné, qui ne le supprime pas) ; aucun correctif spéculatif n'est ajouté pour un warning inerte dont la cause est interne à TensorFlow
+
+**Given** cette correction touche l'affichage de logs dans un environnement (Colab) que je ne peux pas reproduire localement
+**When** le correctif est appliqué
+**Then** il est explicitement marqué comme "à valider par l'utilisateur sur Colab", pas vérifié en local
+
+### Story 4.3: Introduction de requirements.txt (résolution structurelle de l'incident cv2)
+
+As a mainteneur du pipeline,
+I want un fichier de dépendances déclaratif installable en une seule commande,
+so that un runtime Colab frais (ou tout nouvel environnement) n'échoue plus sur un module manquant comme cv2, découvert un par un au fil des crashs.
+
+**Acceptance Criteria:**
+
+**Given** aucun fichier de dépendances n'existe actuellement (gap déjà documenté dans `docs/source-tree-analysis.md` § "Absence de packaging")
+**When** `requirements.txt` est créé
+**Then** il liste les dépendances tierces réellement importées dans le repo, vérifiées par recherche exhaustive (pas supposées) : `jax`, `flax`, `optax`, `opencv-python-headless`, `numpy`, `scipy`, `pandas`, `Pillow`, `matplotlib`, `tqdm`, `psutil`, `tensorflow`, `ultralytics`, `imagehash`
+**And** `opencv-python-headless` (pas `opencv-python`) est utilisée — cohérent avec un environnement Colab sans display
+
+**Given** cette story est la plus proche d'une décision d'architecture (introduction d'un mécanisme de gestion de dépendances)
+**When** elle est prête à être implémentée
+**Then** elle est soumise à l'agent architecte (Winston, `bmad-agent-architect`) pour avis avant merge — demande explicite de l'utilisateur
+
+### Story 4.4: Archivage du code PyTorch/YOLO résiduel (pré-JAX)
+
+As a mainteneur du repo,
+I want déplacer (pas supprimer) le code lié à l'ancienne approche YOLO/PyTorch vers un dossier `archive/` documenté,
+so that ce code historique reste traçable et récupérable sans polluer le pipeline actif ni la liste de dépendances par défaut.
+
+**Acceptance Criteria:**
+
+**Given** `tools/bounding_boxes_from_images_generation.py`, `tools/bounding_boxes_from_images_generation_main.py` (bootstrap d'annotation via YOLOv8n générique, PyTorch/Ultralytics) et `tools/yolov8n.pt` (checkpoint associé) ne sont importés par aucun autre fichier du repo (vérifié)
+**And** l'utilisateur confirme qu'ils ont servi à un besoin réel (pré-génération de bounding boxes avant l'existence d'un modèle propriétaire) mais ne sont plus utilisés depuis que `aircraft_detector_unet` (JAX) existe
+**When** ils sont déplacés vers `archive/` via `git mv` (historique préservé, pas une suppression)
+**Then** `archive/README.md` documente leur contexte d'origine, pourquoi ils sont archivés (pas supprimés), et comment les réactiver
+
+**Given** `tools/YOLOv8-n.py` (reproduction expérimentale de YOLOv8n en Flax/JAX, jamais finalisée, jamais importée non plus)
+**When** il est déplacé vers `archive/`
+**Then** `archive/README.md` documente que l'objectif était de reproduire en JAX un équivalent du modèle `yolov8n.pt`, jamais entraîné ni intégré à `model_library.py`
+
+**Given** `docs/source-tree-analysis.md` référence l'ancien emplacement (`tools/`) de ces 4 fichiers
+**When** l'archivage est effectué
+**Then** la doc est mise à jour pour refléter le nouvel emplacement (`archive/`)
+
+**Given** `ultralytics` (dépendance PyTorch de ces scripts) ne devient plus nécessaire par défaut une fois ces fichiers archivés
+**When** `requirements.txt` (Story 4.3) est finalisé
+**Then** `ultralytics` n'y figure ni en dépendance par défaut ni en note "à la demande" pour le pipeline principal — uniquement documentée dans `archive/README.md` pour la réactivation de ce cas d'usage spécifique

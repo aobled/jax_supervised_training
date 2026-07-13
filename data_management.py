@@ -5,8 +5,34 @@ Séparation de la logique de création/vérification des chunks
 
 import os
 import glob
+
+# Ce module n'utilise TensorFlow que pour le pipeline tf.data (chargement/augmentation
+# CPU) — le calcul GPU/TPU de l'entraînement est géré par JAX seul, importé et déjà
+# initialisé plus tôt dans main.py au moment où ce module est chargé (import paresseux,
+# à l'intérieur de main()). CUDA_VISIBLE_DEVICES doit donc être positionné ICI, juste
+# avant le tout premier `import tensorflow`, PAS dans le bloc d'init précoce de main.py
+# (qui s'exécute avant `import jax` — y toucher aveuglerait aussi JAX).
+#
+# Deux couches, vérifiées empiriquement, chacune couvrant un cas que l'autre ne couvre pas :
+#   1. CUDA_VISIBLE_DEVICES avant l'import : efficace sur runtime TPU (JAX y utilise le
+#      driver TPU, jamais CUDA — rien à "réclamer" avant TF) ou sur toute machine où rien
+#      n'a encore touché CUDA dans ce process. Confirmé par test : TF ne voit alors aucun GPU.
+#   2. tf.config.set_visible_devices() après import, en secours : sur une machine GPU où
+#      JAX a déjà initialisé son propre contexte CUDA avant que ce module ne charge (le cas
+#      local le plus exigeant testé), la variable d'environnement seule n'a plus d'effet sur
+#      ce que TF découvre ensuite — cet appel API reste le seul moyen de forcer TF à ne pas
+#      retenir ce GPU pour ses propres opérations, même s'il ne supprime pas un éventuel
+#      warning déjà émis pendant l'import. Best-effort, ne doit jamais faire échouer l'entraînement.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+
 import numpy as np
 import tensorflow as tf
+
+try:
+    tf.config.set_visible_devices([], 'GPU')
+except RuntimeError as _e:
+    print(f"⚠️  Impossible de masquer le GPU à TensorFlow (non bloquant) : {_e}")
+
 from tensorflow.keras import layers
 from PIL import Image
 import tqdm

@@ -19,7 +19,7 @@ def process_detection_dataset(
     """
     Traite le dataset pour la détection :
     1. Regroupe les annotations par image source
-    2. Applique Letterbox
+    2. Redimensionne par étirement (stretched resizing, pas de Letterbox)
     3. Normalise les boxes [x, y, w, h] en [0-1] relatif à l'image target_size
     4. Sauvegarde en chunks .npz
     

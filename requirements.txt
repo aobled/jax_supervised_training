@@ -1,0 +1,28 @@
+# Dépendances tierces "portables" (identiques CPU/GPU/TPU, local/Colab) — safe à installer
+# partout. Volontairement NON épinglées en version : ce fichier n'a jamais existé avant ce
+# correctif (2026-07-12, cf. _bmad-output/implementation-artifacts/), on introduit le strict
+# nécessaire plutôt qu'un pinning prématuré sans historique de conflit de version observé.
+numpy
+scipy
+pandas
+Pillow
+matplotlib
+tqdm
+psutil
+opencv-python-headless
+
+# --- Dépendances volontairement EXCLUES de ce fichier, et pourquoi ---
+#
+# jax, jaxlib, tensorflow : dépendent de la plateforme exacte (build CUDA local vs build TPU
+# Colab). Colab et l'environnement conda local les ont déjà, correctement matchés à leur
+# hardware. Les lister ici forcerait `pip install -r requirements.txt` à réinstaller une
+# version générique par-dessus, avec un vrai risque de casser le support TPU/GPU déjà
+# fonctionnel. Ne pas y toucher tant qu'aucun run n'a échoué pour une raison de version
+# JAX/TF (cf. avis architecte, session du 2026-07-12).
+#
+# ultralytics, imagehash : utilisées uniquement par des scripts ponctuels de tools/ (dédoublonnage
+# d'images) ou archive/ (bootstrap d'annotation YOLO, voir archive/README.md), pas par le
+# pipeline d'entraînement principal (main.py). ultralytics entraîne PyTorch en dépendance —
+# lourd et sans rapport avec ce projet 100% JAX, risque de conflit CUDA avec JAX si installé
+# par défaut. À installer à la demande (`pip install ultralytics imagehash`) uniquement si
+# ces scripts spécifiques sont utilisés.

@@ -77,6 +77,13 @@ development_status:
   3-3-suppression-de-bounding-boxes-with-classification-from-benchmark-py: done
   epic-3-retrospective: done
 
+  epic-4: done
+  4-1-suppression-code-letterbox-residuel: done
+  4-2-correction-warnings-colab-absl-cuda: done
+  4-3-introduction-requirements-txt: done
+  4-4-archivage-code-pytorch-yolo-residuel: done
+  epic-4-retrospective: optional
+
 action_items:
   - epic: "1-3"
     action: "Router les prochains chantiers via les agents specialises (Mary/Winston/John/Sally/Amelia/Paige) plutot que le flux general"
@@ -88,6 +95,10 @@ action_items:
     status: open
   - epic: "1-3"
     action: "Confirmer la validation main.py sur Colab/TPU (Goal 2 PRD, FIGHTERJET_CLASSIFICATION + FIGHTERJET_DETECTION)"
+    owner: "Aymeric"
+    status: done
+  - epic: "1-3"
+    action: "cv2 ModuleNotFoundError en fin de training (generate_reports) - confirme independant du refactor par investigation Winston (git log/show), cause racine = absence de requirements.txt. A retester apres correctif packaging."
     owner: "Aymeric"
     status: open
   - epic: "1-3"

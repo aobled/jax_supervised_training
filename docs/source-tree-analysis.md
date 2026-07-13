@@ -20,18 +20,21 @@ JAX_Detection/
 ├── heatmap_generation.py                                        # Importe load_detection_model depuis inference_utils.py
 ├── heatmap_contouring.py                                        # Importe load_detection_model depuis inference_utils.py
 ├── check_image_channels.py                                      # Utilitaire ponctuel (diagnostic images)
-├── generate_letterbox_dataset.py                                 # Génération dataset letterboxé
 ├── fighterjet_classification_dataset_tools.py                    # Outils dataset classification (459 lignes)
 ├── fighterjet_detection_dataset_tools.py                         # Outils dataset détection (217 lignes)
 │
-├── tools/                       # 24 scripts — mélange d'outils dataset (convert_*, audit_*), et un script d'inférence
+├── tools/                       # 21 scripts — mélange d'outils dataset (convert_*, audit_*), et un script d'inférence
 │   ├── bounding_boxes_with_classification_from_images_generation.py  # Script d'inférence — importe depuis inference_utils.py
 │   ├── audit_dataset_classification.py / audit_dataset_detection.py / audit_dataset_results_pandas.py
 │   ├── convert_*.py (×6)         # Convertisseurs de formats de datasets tiers vers le format JSON interne (AeroScan, HRPlanesv2, Military Aircraft Dataset, YOLOv8...)
 │   ├── build_fixed_aircraft_dataset.py, duplicate_image_detection_and_normalization.py, duplicate_files_find.py, find_and_deduplicate.py
 │   ├── boxes_process_manual_tkinter.py (1285 lignes)  # Éditeur manuel de bounding boxes (GUI Tkinter), le plus gros fichier de tools/
 │   ├── inspect_pickle.py         # Script de debug ponctuel (corrigé pour pointer vers ../*.pkl, cf. session du 2026-07-12)
-│   └── kepler_dataset_tools.py, reporting_dataset_pandas.py, move_excess_to_detection.py, rename_category_in_json_files.py, YOLOv8-n.py, detect_non_free_images.py
+│   └── kepler_dataset_tools.py, reporting_dataset_pandas.py, move_excess_to_detection.py, rename_category_in_json_files.py, detect_non_free_images.py
+│
+├── archive/                     # Code fonctionnel mais plus utilisé — conservé pour référence (2026-07-12), voir archive/README.md
+│   ├── bounding_boxes_from_images_generation.py, bounding_boxes_from_images_generation_main.py, yolov8n.pt  # Bootstrap d'annotation via YOLOv8n générique (PyTorch/Ultralytics), pré-JAX
+│   └── YOLOv8-n.py               # Reproduction expérimentale de YOLOv8n en Flax/JAX, jamais finalisée ni entraînée
 │
 ├── docs/                         # Documentation existante (strat_*.md) + nouveaux artefacts BMAD (renommé depuis doc/, 2026-07-12)
 ├── data/                         # Datasets .npz chunkés — chemin piloté par DATA_ROOT (env var), gitignored
