@@ -81,7 +81,7 @@ y = y1 + v·(y2 - y1)   avec v ∈ [0, 1] sur 128 lignes
 
 Primitive JAX concret identifié : `jax.scipy.ndimage.map_coordinates` (ordre 1 = bilinéaire), différentiable par rapport aux valeurs de pixels et aux coordonnées.
 
-**Clarification critique (résout la confusion d'Aymeric)** : cette technique répond à *"comment lire des pixels à coordonnées non entières sans découpe discrète"*, pas à *"depuis quelle image on les lit"*. Elle ne supprime pas le besoin d'une image source haute résolution dans le graphe — elle ne fait que remplacer la découpe cv2 par une lecture continue. **Il faut donc toujours deux images en entrée du graphe : une basse résolution (224×224) pour la détection, une plus grande pour le crop&resize de chaque box.** Le "combien de résolution" reste une vraie question de coût mémoire (voir décision ouverte #5 ci-dessous), le grid-sample ne la fait pas disparaître, il précise juste le mécanisme de lecture.
+**Clarification critique (résout la confusion d'Aymeric)** : cette technique répond à *"comment lire des pixels à coordonnées non entières sans découpe discrète"*, pas à *"depuis quelle image on les lit"*. Elle ne supprime pas le besoin d'une image source haute résolution dans le graphe — elle ne fait que remplacer la découpe cv2 par une lecture continue. **Résolu par la structure à deux branches proposée par Aymeric** (voir décision ci-dessous) : une seule entrée canonique (1920×1080), dérivée en interne vers une branche 224×224 (détection) et une branche pleine résolution conservée (crop). Le "combien de résolution" reste une vraie question de coût mémoire (décision ouverte #6), le grid-sample ne la fait pas disparaître, il précise juste le mécanisme de lecture.
 
 `vmap(crop_and_resize)` sur les 20 slots de boîtes (axe fixe, masqué pour les slots invalides) confirmé comme le bon pattern pour paralléliser sur GPU sans boucle Python — cohérent avec le pattern déjà discuté pour la représentation à taille fixe des boîtes.
 
@@ -90,29 +90,67 @@ Primitive JAX concret identifié : `jax.scipy.ndimage.map_coordinates` (ordre 1 
 1. ~~Volume de données détection aujourd'hui vs à l'époque du test grid-based~~ — **résolu**, voir section "Volume de données" ci-dessus.
 2. ~~Confirmation d'Aymeric sur pipeline unifié d'abord~~ — **résolu**, voir "Décision actée" ci-dessus.
 3. ~~Nature du "recadrage différentiable"~~ — **résolu** : grid-sample continu (`jax.scipy.ndimage.map_coordinates`), déterministe (fonction pure des coordonnées de boîte déjà connues, pas de sous-réseau appris). Voir section ci-dessus.
-4. **Résolution de l'image source pour le crop (pas "full HD" nécessairement)** — bloquant. Aymeric a proposé de se limiter au 224×224 (input détection) mais ça viderait le crop de toute sa valeur (zéro détail au-delà de ce que la détection voit déjà). Il faut connaître la **résolution native réelle des vidéos/images sources** (vérifié dans le code : `bounding_boxes_with_classification_from_video_generation.py:300`, `cv2.VideoCapture(VIDEO_PATH)` ne fixe aucune résolution — dépend du fichier vidéo réel ; `CANVAS_WIDTH/HEIGHT=1920×1080` est un canvas de visualisation, pas la résolution source). **Question posée à Aymeric, réponse attendue.**
-5. **Couche d'entrée (résolution source) → 224×224** : resize fixe déterministe vs couche apprise. Penchant actuel : fixe. Dépend de la réponse à la question #4 (écart de downsampling à quantifier une fois la résolution source connue).
-6. **Budget mémoire embarqué** : garder l'image source en mémoire device jusqu'à l'étape de crop, à quel batch size cible, sur quel matériel (T4 Colab actuel vs autre) — dépend aussi de la réponse à #4.
+4. ~~Résolution de l'image source pour le crop~~ — **résolu** : résolution canonique fixée à 1920×1080 grayscale (hypothèse de travail d'Aymeric), toute source non conforme normalisée en python en amont du graphe (normalisation d'entrée, pas de la logique d'inférence — ne viole pas l'objectif "zéro python").
+5. ~~Couche d'entrée → 224×224~~ — **résolu** : resize fixe déterministe (voir décision "tête de détection" — pas de couche apprise pour cette étape).
+6. **Budget mémoire embarqué** : garder l'image 1920×1080 en mémoire device jusqu'à l'étape de crop, à quel batch size cible, sur quel matériel (T4 Colab actuel vs autre) — pas encore quantifié, mais forme désormais connue (résolution fixe), donc calculable.
+7. **Backbone + Feature Pyramid** — explicitement reporté (voir décision "tête de détection"), pas abandonné. Réévaluer seulement si la détection des petits avions distants s'avère concrètement insuffisante en test.
+8. **Annotations d'entraînement au niveau boîte** — à confirmer (voir "Risques identifiés").
+
+## Décision (2026-07-14) : tête de détection par point central (style CenterNet), pas de backbone/FPN pour l'instant
+
+Aymeric a proposé un schéma mélangeant deux options distinctes (reconnu après coup) : (1) upgrade backbone+FPN pour la détection, (2) extraction de boîtes par Top-K sur heatmap plutôt que par contours. Winston recommande de séparer les deux et de ne retenir que (2) pour cette itération :
+
+- **Retenu — Top-K sur heatmap (façon CenterNet, anchor-free)** : remplace `seuillage → morphologie → cv2.findContours` par une tête qui prédit directement un heatmap de centres d'objets + une régression de taille de boîte à chaque position. Extraction des boîtes = recherche de maxima locaux sur le heatmap (`jax.lax.reduce_window`, même primitive déjà identifiée pour la morphologie) + sélection des K=20 meilleurs scores (`jax.lax.top_k`). **100% JAX natif, plus besoin de cv2 pour le décodage.** Répare aussi structurellement le problème de fusion des boîtes : chaque instance est une prédiction ponctuelle indépendante, pas un blob extrait après coup — même si le manque de données de chevauchement (voir section volume) limite encore la qualité sur les cas de recouvrement extrême. Bonus : les approches anchor-free sont réputées plus économes en données que le YOLO à ancres testé historiquement, deuxième raison possible d'éviter de reproduire l'échec passé.
+- **Reporté — backbone + Feature Pyramid Network** : ne répond à aucun problème identifié pour l'instant (l'insuffisance de détection des petits objets lointains n'a pas été mesurée, seulement supposée). Ajoute complexité et risque sans preuve de nécessité. Réévaluer seulement si la détection des petits avions distants s'avère concrètement insuffisante en test.
+- Génération des cibles d'entraînement (heatmap + tailles à partir des coordonnées de boîte existantes) : reformulation déterministe des données déjà utilisées aujourd'hui, ne rouvre pas la question de volume de données — à confirmer que les annotations actuelles sont bien au niveau boîte (pas seulement masque) avant de scoper ce travail.
+
+```mermaid
+flowchart TB
+    subgraph TRAIN["Entraînement classification — séparé, déjà existant, inchangé"]
+        DS["Dataset équilibré<br/>~5000 images / classe"]
+        DS --> CLF["ClassifierNet<br/>(sophisticated_cnn_128_plus)"]
+        CLF --> PKL["classifier.pkl"]
+        PKL --> FROZEN["Paramètres figés"]
+    end
+
+    subgraph DETECT["JAX Single-Pass — détecteur (nouveau, à concevoir)"]
+        IMG["Image 1920x1080 grayscale<br/>résolution canonique<br/>(normalisation python en amont si besoin)"]
+        IMG --> RESIZE["Resize déterministe fixe<br/>(pas une couche apprise)"]
+        RESIZE --> ENC["Encoder-decoder détection<br/>(même famille que l'UNet actuel —<br/>pas de backbone/FPN pour l'instant)"]
+        ENC --> HM["Heatmap centres + régression tailles<br/>(remplace le masque de segmentation)"]
+        HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
+        PEAK --> TOPK["Top-K = 20 boxes<br/>+ masque slots invalides"]
+        IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
+        TOPK --> CROP
+        CROP --> BATCH["Batch 20x128x128"]
+        BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
+        FROZEN -.params figés.-> CLFCALL
+        CLFCALL --> OUT["Classes finales + scores"]
+    end
+```
 
 ## Risques identifiés
 
 - **Parité pixel pour le modèle de classification figé.** `FIGHTERJET_CLASSIFICATION` a été entraîné sur des crops produits par cv2 (interpolation, conversion niveaux de gris `cv2.cvtColor`, stretching non-uniforme). Un crop JAX qui ne reproduit pas exactement ce comportement numérique introduirait une régression silencieuse (distribution d'entrée légèrement décalée). **Vérifiable à coût nul avant tout réentraînement** — comparaison numérique crop JAX vs cv2 sur images réelles.
   - **Précision (2026-07-14)** : même avec la bonne formule mathématique, plusieurs conventions d'alignement pixel existent (bord vs centre du pixel — le classique problème "align corners" qui piège souvent les portages entre bibliothèques). `map_coordinates` doit être testé précisément contre `cv2.resize` sur ce point, pas juste "avoir l'air pareil".
-- **Décodage des boîtes reste cv2 (`findContours`) même en gardant l'UNet actuel** — "zéro python à l'inférence" n'est donc que partiel dans un premier temps (crop+classification seulement). Réimplémenter l'extraction de composantes connexes en JAX natif est possible (propagation de labels par dilatation itérative) mais reste un chantier à part, reporté après la preuve de valeur du crop+classification.
-- Chevauchement d'avions : reporté, pas résolu — limite connue du pipeline unifié tant que ce sous-projet n'est pas traité séparément (voir section volume de données).
+- ~~Décodage des boîtes reste cv2 (`findContours`)~~ — **superseded, voir "Décision : tête de détection par point central" ci-dessus.**
+- Chevauchement d'avions : reporté, pas résolu — la tête par point central est structurellement mieux adaptée mais reste limitée par le manque de données de chevauchement (voir section volume de données).
+- **Nouveau** : à confirmer que les annotations d'entraînement actuelles sont au niveau boîte (coordonnées x1/y1/x2/y2 par avion), pas seulement des masques de segmentation pixel par pixel — nécessaire pour générer les cibles heatmap+taille de la nouvelle tête sans recollecter de données.
 
 ## Plan de validation proposé (pas encore lancé)
 
 Dans le même esprit que les runs CIFAR10 de cette session — valider les inconnues les moins chères avant d'investir dans le code :
 
 1. Parité crop JAX (`map_coordinates`) vs cv2, y compris la convention d'alignement pixel (script autonome, pas de modèle à réentraîner)
-2. ~~Trancher le sort du décodage de boîtes~~ — **résolu** : garder cv2/`findContours` pour cette première itération (voir "Risques identifiés"), JAX natif reporté
-3. Déterminer la résolution source nécessaire pour le crop (décision ouverte #4) et son coût mémoire à batch cible
-4. Une fois 1-3 tranchés : architecture spine formelle (`bmad-architecture`) avec schémas, une fois qu'on sait quelle forme prend le pipeline
-5. Réentraînement du nouveau modèle de détection — seulement après validation des étapes précédentes
+2. Confirmer le format des annotations d'entraînement (boîtes vs masques uniquement) — conditionne la génération des cibles heatmap+taille
+3. Prototype de la tête par point central sur le sous-ensemble existant, comparer au décodage actuel sur les cas déjà identifiés (vidéo du 14 juillet)
+4. Quantifier le budget mémoire (résolution 1920×1080 fixe, batch cible, matériel) — décision ouverte #6
+5. Une fois 1-4 validés : architecture spine formelle (`bmad-architecture`) avec le diagramme mermaid ci-dessus comme point de départ
+6. Réentraînement complet du nouveau modèle de détection — seulement après validation des étapes précédentes
 
 ## Journal des échanges
 
 - **2026-07-14** — Aymeric propose l'idée initiale (recadrage différentiable JAX, classification figée). Winston identifie que le vrai point dur est `cv2.findContours`, pas le crop. Aymeric relie le problème de fusion des boxes (avions en formation serrée) à une reconsidération du grid-based, abandonné historiquement pour manque de données. Convergence identifiée entre les deux sujets. Document créé.
 - **2026-07-14 (suite)** — Aymeric fournit les chiffres réels de volume (confirmé option (a) : stats séparées détection/classification). Détection combinée = 142 673 images, mais seulement 1.36% ont 2+ boxes, et le vrai cas de chevauchement ne représente qu'une poignée d'exemples. Conclusion : le volume global n'est plus bloquant, mais le signal d'entraînement spécifique au chevauchement est quasi inexistant, quelle que soit l'architecture. Winston recommande d'avancer sur le pipeline unifié d'abord (valeur sûre, indépendante du chevauchement) et de reporter YOLO/grid-based tant qu'une vraie stratégie de données (augmentation synthétique par composition) n'est pas en place. Recommandation soumise, pas encore confirmée par Aymeric.
 - **2026-07-14 (suite)** — Aymeric confirme la recommandation (pipeline unifié d'abord). Nom retenu : "JAX Single-Pass". Aymeric propose de simplifier l'input à 224×224 (abandon du full HD) mais s'interroge sur la perte de détail que ça impliquerait. Relaie une technique de crop&resize par grid-sample différentiable (bilinéaire, coordonnées continues). Winston valide la technique (`jax.scipy.ndimage.map_coordinates`) mais clarifie qu'elle ne résout pas le besoin d'une image source haute résolution — elle change seulement le mécanisme de lecture, pas la question de résolution. Nouvelle question bloquante posée : résolution native réelle des vidéos sources (non fixée dans le code, dépend du fichier). `vmap` sur 20 slots de boîtes confirmé comme bon pattern.
+- **2026-07-14 (suite)** — Aymeric fixe la résolution canonique à 1920×1080 grayscale (normalisation python en amont si besoin) et propose une structure à deux branches (224×224 pour la détection, pleine résolution conservée pour le crop) — résout élégamment le besoin de deux images identifié précédemment. Premier schéma ASCII fourni, mélangeant deux options (upgrade backbone/FPN + Top-K sur heatmap), reconnu par Aymeric. Winston sépare les deux et recommande de ne retenir que le Top-K sur heatmap (style CenterNet, anchor-free) — élimine `findContours`, répare structurellement la fusion des boîtes, potentiellement plus économe en données que le YOLO à ancres testé historiquement. Backbone/FPN reporté (pas de problème mesuré qui le justifie). Diagramme mermaid produit.
