@@ -1,0 +1,335 @@
+TPU v5e	
+RAM du système	13.7 / 47.0 GB
+Disque					23.9 / 225.3 GB
+
+
+/usr/local/lib/python3.12/dist-packages/jax/_src/cloud_tpu_init.py:86: UserWarning: Transparent hugepages are not enabled. TPU runtime startup and shutdown time should be significantly improved on TPU v5e and newer. If not already set, you may need to enable transparent hugepages in your VM image (sudo sh -c "echo always > /sys/kernel/mm/transparent_hugepage/enabled")
+  warnings.warn(
+🚀 TPU détecté - Optimisations activées
+📊 TPU: Utilisation de float16
+Backend JAX: tpu
+Devices: [TpuDevice(id=0, process_index=0, coords=(0,0,0), core_on_chip=0)]
+Using device: TPU_0(process=0,(0,0,0,0))
+🎯 Dataset spécifié: FIGHTERJET_CLASSIFICATION
+
+📊 Chargement de la configuration: FIGHTERJET_CLASSIFICATION
+
+📊 CONFIGURATION: FIGHTERJET_CLASSIFICATION
+============================================================
+Classes: 32
+Noms: ['a10', 'a4', 'a400m', 'alphajet', 'b1b', 'b2', 'b52', 'c130', 'c17', 'f117', 'f14', 'f15', 'f16', 'f18', 'f22', 'f35', 'f4', 'flanker', 'gripen', 'harrier', 'hawk', 'hawkeye', 'mig29', 'mirage2000', 'mustang', 'rafale', 'spitfire', 'sr71', 'su57', 'tornado', 'typhoon', 'v22']
+Image size: (128, 128)
+Modèle: sophisticated_cnn_128_plus
+Epochs: 40
+Patience: 5
+
+TPU: batch=128×4, lr=0.008, wd=5e-05
+GPU: batch=128×4, lr=0.0008, wd=5e-05
+============================================================
+
+📁 GESTION DES DONNÉES
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1784053528.169401    1952 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1784053530.543358    1952 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1784053539.746833    1952 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+🔄 Initialisation du pipeline de données pour la tâche : CLASSIFICATION
+📦 Classification Dataset: 4 train chunks, 1 val chunks [Grayscale (1 canal)]
+✅ Chunks de classification trouvés
+📊 Calcul des statistiques complètes...
+  Train chunk dataset_classification_train_chunk0.npz: 30000 échantillons
+  Train chunk dataset_classification_train_chunk1.npz: 30000 échantillons
+  Train chunk dataset_classification_train_chunk2.npz: 30000 échantillons
+  Train chunk dataset_classification_train_chunk3.npz: 26429 échantillons
+  Val chunk dataset_classification_val_chunk0.npz: 29080 échantillons
+📊 STATISTIQUES:
+   Train: 4 chunks, ~116429 échantillons
+   Val: 1 chunks, ~29080 échantillons
+
+🔍 Vérification des datasets...
+📊 Train: shape=(128, 128, 128, 1), targets=(128,)
+📊 Val: shape=(128, 128, 128, 1), targets=(128,)
+
+🏗️  CRÉATION DU MODÈLE
+============================================================
+Modèle: sophisticated_cnn_128_plus
+Classes: 32
+Dropout: 0.0
+🎯 Application de la logique d'entraînement : CLASSIFICATION
+
+🎯 CRÉATION DU TRAINER
+============================================================
+
+🚀 LANCEMENT DE L'ENTRAÎNEMENT
+============================================================
+💾 RAM avant entraînement: 14.7%
+📊 TAILLE DU MODÈLE:
+   Paramètres totaux: 1,257,041
+   Taille: 4.8 MB
+⚠️  Aucun checkpoint trouvé: best_model_training_state_classification.pkl
+🚀 Démarrage d'un nouvel entraînement
+
+Epoch 1/40 - training...
+💾 RAM: 15.6% (6.8GB/47.0GB)
+Training: 910it [03:34,  4.25it/s]
+Train | Loss=2.7566 | Accuracy=0.2055 | Time=214.4s
+Val   | Loss=2.9366 | Accuracy=0.1642 | Time=23.8s
+[✓] New best model saved (Accuracy=0.1642)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 2/40 - training...
+Training: 910it [02:17,  6.63it/s]
+Train | Loss=1.9868 | Accuracy=0.4830 | Time=137.4s
+Val   | Loss=1.9450 | Accuracy=0.3681 | Time=12.2s
+[✓] New best model saved (Accuracy=0.3681)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 3/40 - training...
+Training: 910it [02:19,  6.52it/s]
+Train | Loss=1.6735 | Accuracy=0.6224 | Time=139.8s
+Val   | Loss=1.4384 | Accuracy=0.5321 | Time=13.6s
+[✓] New best model saved (Accuracy=0.5321)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 4/40 - training...
+Training: 910it [02:16,  6.68it/s]
+Train | Loss=1.5296 | Accuracy=0.6908 | Time=136.4s
+Val   | Loss=1.2353 | Accuracy=0.6729 | Time=14.2s
+[✓] New best model saved (Accuracy=0.6729)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 5/40 - training...
+Training: 910it [02:13,  6.84it/s]
+Train | Loss=1.4023 | Accuracy=0.7417 | Time=133.3s
+Val   | Loss=1.0360 | Accuracy=0.7107 | Time=13.9s
+[✓] New best model saved (Accuracy=0.7107)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 6/40 - training...
+💾 RAM: 20.1% (8.9GB/47.0GB)
+Training: 910it [02:16,  6.65it/s]
+Train | Loss=1.3351 | Accuracy=0.7751 | Time=137.0s
+Val   | Loss=0.7425 | Accuracy=0.7906 | Time=14.1s
+[✓] New best model saved (Accuracy=0.7906)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 7/40 - training...
+Training: 910it [02:15,  6.70it/s]
+Train | Loss=1.2558 | Accuracy=0.8098 | Time=136.0s
+Val   | Loss=0.7469 | Accuracy=0.8023 | Time=12.4s
+[✓] New best model saved (Accuracy=0.8023)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 8/40 - training...
+Training: 910it [02:17,  6.61it/s]
+Train | Loss=1.1861 | Accuracy=0.8350 | Time=137.8s
+Val   | Loss=0.5303 | Accuracy=0.8513 | Time=13.6s
+[✓] New best model saved (Accuracy=0.8513)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 9/40 - training...
+Training: 910it [02:15,  6.71it/s]
+Train | Loss=1.1551 | Accuracy=0.8495 | Time=135.7s
+Val   | Loss=0.5018 | Accuracy=0.8719 | Time=12.1s
+[✓] New best model saved (Accuracy=0.8719)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 10/40 - training...
+Training: 910it [02:14,  6.74it/s]
+Train | Loss=1.1355 | Accuracy=0.8594 | Time=135.1s
+Val   | Loss=0.5112 | Accuracy=0.8740 | Time=12.1s
+[✓] New best model saved (Accuracy=0.8740)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 11/40 - training...
+💾 RAM: 21.0% (9.3GB/47.0GB)
+Training: 910it [02:18,  6.57it/s]
+Train | Loss=1.0788 | Accuracy=0.8758 | Time=138.7s
+Val   | Loss=0.4550 | Accuracy=0.8855 | Time=14.0s
+[✓] New best model saved (Accuracy=0.8855)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 12/40 - training...
+Training: 910it [02:19,  6.54it/s]
+Train | Loss=1.0625 | Accuracy=0.8841 | Time=139.4s
+Val   | Loss=0.4337 | Accuracy=0.8958 | Time=14.0s
+[✓] New best model saved (Accuracy=0.8958)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 13/40 - training...
+Training: 910it [02:18,  6.59it/s]
+Train | Loss=1.0269 | Accuracy=0.8962 | Time=138.2s
+Val   | Loss=0.3716 | Accuracy=0.9091 | Time=12.1s
+[✓] New best model saved (Accuracy=0.9091)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 14/40 - training...
+Training: 910it [02:17,  6.63it/s]
+Train | Loss=1.0123 | Accuracy=0.9036 | Time=137.4s
+Val   | Loss=0.3493 | Accuracy=0.9168 | Time=12.6s
+[✓] New best model saved (Accuracy=0.9168)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 15/40 - training...
+Training: 910it [02:16,  6.67it/s]
+Train | Loss=0.9937 | Accuracy=0.9115 | Time=136.6s
+Val   | Loss=0.3221 | Accuracy=0.9218 | Time=13.9s
+[✓] New best model saved (Accuracy=0.9218)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 16/40 - training...
+💾 RAM: 20.8% (9.2GB/47.0GB)
+Training: 910it [02:17,  6.62it/s]
+Train | Loss=0.9775 | Accuracy=0.9189 | Time=137.6s
+Val   | Loss=0.3093 | Accuracy=0.9260 | Time=13.9s
+[✓] New best model saved (Accuracy=0.9260)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 17/40 - training...
+Training: 910it [02:16,  6.66it/s]
+Train | Loss=0.9643 | Accuracy=0.9223 | Time=136.9s
+Val   | Loss=0.2841 | Accuracy=0.9338 | Time=13.8s
+[✓] New best model saved (Accuracy=0.9338)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 18/40 - training...
+Training: 910it [02:19,  6.54it/s]
+Train | Loss=0.9339 | Accuracy=0.9348 | Time=139.4s
+Val   | Loss=0.2690 | Accuracy=0.9367 | Time=13.5s
+[✓] New best model saved (Accuracy=0.9367)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 19/40 - training...
+Training: 910it [02:17,  6.62it/s]
+Train | Loss=0.9262 | Accuracy=0.9377 | Time=137.5s
+Val   | Loss=0.2475 | Accuracy=0.9392 | Time=14.0s
+[✓] New best model saved (Accuracy=0.9392)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 20/40 - training...
+Training: 910it [02:18,  6.55it/s]
+Train | Loss=0.9271 | Accuracy=0.9368 | Time=139.1s
+Val   | Loss=0.2458 | Accuracy=0.9406 | Time=12.4s
+[✓] New best model saved (Accuracy=0.9406)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 21/40 - training...
+💾 RAM: 20.7% (9.2GB/47.0GB)
+Training: 910it [02:16,  6.68it/s]
+Train | Loss=0.8986 | Accuracy=0.9494 | Time=136.4s
+Val   | Loss=0.2423 | Accuracy=0.9472 | Time=13.1s
+[✓] New best model saved (Accuracy=0.9472)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 22/40 - training...
+Training: 910it [02:14,  6.77it/s]
+Train | Loss=0.9106 | Accuracy=0.9504 | Time=134.5s
+Val   | Loss=0.2384 | Accuracy=0.9472 | Time=13.9s
+
+Epoch 23/40 - training...
+Training: 910it [02:13,  6.80it/s]
+Train | Loss=0.8855 | Accuracy=0.9561 | Time=133.9s
+Val   | Loss=0.2257 | Accuracy=0.9492 | Time=13.8s
+[✓] New best model saved (Accuracy=0.9492)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 24/40 - training...
+Training: 910it [02:16,  6.65it/s]
+Train | Loss=0.8786 | Accuracy=0.9570 | Time=136.9s
+Val   | Loss=0.2247 | Accuracy=0.9509 | Time=13.6s
+[✓] New best model saved (Accuracy=0.9509)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 25/40 - training...
+Training: 910it [02:16,  6.68it/s]
+Train | Loss=0.8742 | Accuracy=0.9607 | Time=136.4s
+Val   | Loss=0.2223 | Accuracy=0.9521 | Time=12.9s
+[✓] New best model saved (Accuracy=0.9521)
+   [💾] Export pur PKL généré: best_model.pkl
+
+Epoch 26/40 - training...
+💾 RAM: 21.4% (9.5GB/47.0GB)
+Training: 910it [02:14,  6.77it/s]
+Train | Loss=0.8747 | Accuracy=0.9606 | Time=134.6s
+Val   | Loss=0.2227 | Accuracy=0.9516 | Time=12.5s
+
+Epoch 27/40 - training...
+Training: 910it [02:14,  6.76it/s]
+Train | Loss=0.8795 | Accuracy=0.9611 | Time=134.7s
+Val   | Loss=0.2226 | Accuracy=0.9517 | Time=12.6s
+
+Epoch 28/40 - training...
+Training: 910it [02:16,  6.68it/s]
+Train | Loss=0.8867 | Accuracy=0.9602 | Time=136.4s
+Val   | Loss=0.2235 | Accuracy=0.9519 | Time=13.4s
+
+Epoch 29/40 - training...
+Training: 910it [02:17,  6.62it/s]
+Train | Loss=0.8706 | Accuracy=0.9620 | Time=137.6s
+Val   | Loss=0.2232 | Accuracy=0.9517 | Time=11.9s
+
+Epoch 30/40 - training...
+Training: 910it [02:17,  6.64it/s]
+Train | Loss=0.8816 | Accuracy=0.9603 | Time=137.3s
+Val   | Loss=0.2230 | Accuracy=0.9519 | Time=14.2s
+Early stopping at epoch 30
+
+🎯 ENTRAÎNEMENT TERMINÉ
+   Meilleur Accuracy validation: 0.9521
+
+📊 GÉNÉRATION DES MÉTRIQUES DÉLÉGUÉE À LA STRATÉGIE
+============================================================
+🔍 Chargement du modèle depuis le fichier .pkl...
+🔍 Modèle sauvegardé: sophisticated_cnn_128_plus, 32 classes
+⚠️  ATTENTION: Le fichier .pkl doit correspondre au modèle sophisticated_cnn_128_plus avec 32 classes
+📊 Collecte des données du dataset...
+📊 Dataset: 29080 images, 32 classes
+🔮 Génération des prédictions...
+Prédictions: 100% 228/228 [01:00<00:00,  3.78it/s]
+💾 Matrice de confusion sauvegardée: confusion_matrix.png
+
+📈 RÉSULTATS DE LA MATRICE DE CONFUSION:
+Accuracy globale: 0.9522
+Macro Precision: 0.9507
+Macro Recall: 0.9518
+Macro F1: 0.9511
+
+📊 DÉTAILS PAR CLASSE:
+a10: Precision=0.962, Recall=0.976, F1=0.969
+a4: Precision=0.937, Recall=0.951, F1=0.944
+a400m: Precision=0.968, Recall=0.974, F1=0.971
+alphajet: Precision=0.928, Recall=0.970, F1=0.949
+b1b: Precision=0.967, Recall=0.967, F1=0.967
+b2: Precision=0.957, Recall=0.954, F1=0.955
+b52: Precision=0.947, Recall=0.947, F1=0.947
+c130: Precision=0.972, Recall=0.965, F1=0.968
+c17: Precision=0.972, Recall=0.968, F1=0.970
+f117: Precision=0.947, Recall=0.964, F1=0.955
+f14: Precision=0.965, Recall=0.941, F1=0.953
+f15: Precision=0.956, Recall=0.906, F1=0.930
+f16: Precision=0.951, Recall=0.937, F1=0.944
+f18: Precision=0.925, Recall=0.926, F1=0.925
+f22: Precision=0.951, Recall=0.966, F1=0.959
+f35: Precision=0.934, Recall=0.952, F1=0.943
+f4: Precision=0.974, Recall=0.938, F1=0.956
+flanker: Precision=0.951, Recall=0.911, F1=0.931
+gripen: Precision=0.951, Recall=0.977, F1=0.964
+harrier: Precision=0.966, Recall=0.952, F1=0.959
+hawk: Precision=0.945, Recall=0.960, F1=0.952
+hawkeye: Precision=0.953, Recall=0.966, F1=0.960
+mig29: Precision=0.939, Recall=0.942, F1=0.941
+mirage2000: Precision=0.966, Recall=0.949, F1=0.958
+mustang: Precision=0.941, Recall=0.950, F1=0.945
+rafale: Precision=0.949, Recall=0.940, F1=0.945
+spitfire: Precision=0.951, Recall=0.962, F1=0.956
+sr71: Precision=0.888, Recall=0.909, F1=0.898
+su57: Precision=0.949, Recall=0.965, F1=0.957
+tornado: Precision=0.977, Recall=0.945, F1=0.961
+typhoon: Precision=0.933, Recall=0.968, F1=0.950
+v22: Precision=0.950, Recall=0.961, F1=0.955
+✅ Matrice de confusion générée avec succès depuis l'export pur (pkl) !
+
+🏁 Programme terminé
+   Meilleur score validation (Accuracy ou Loss): 0.9521
+   Meilleur score validation (Accuracy ou Loss): 0.9448

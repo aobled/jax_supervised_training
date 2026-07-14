@@ -100,8 +100,8 @@ DATASET_CONFIGS = {
         "patience": 5,
         "warmup_steps": 1200,      # Rendu explicite (était hérité du Trainer)
         "decay_steps": 6000,       # Le LR chute vite et stagne à 0 pour fine-tuning après ~15 epochs
-        "label_smoothing": 0.15,  # 2026-07-14 : réactivé après correctif task_strategies.py:110-118 (mixup+smoothing combinables, avant : if/elif exclusif, cette valeur était morte). Jamais testé réellement combiné à mixup avant ce run - modèle sauvegardé par l'utilisateur avant ce test (archive/)
-        "mixup_alpha": 0.05,        # ✅ OPTIMAL: Mixup doux (meilleur compromis trouvé)
+        "label_smoothing": 0.15,  # ✅ Validé 2026-07-14 (après fix task_strategies.py:110-118, ex-mort par if/elif) : combiné à mixup, 0.9521 val vs 0.9458 référence identique sans smoothing (+0.63pt, archive/training_classification_log_128x4_mixup_smoothing.txt)
+        "mixup_alpha": 0.05,        # ✅ OPTIMAL: Mixup doux (meilleur compromis trouvé) - confirmé combinable avec label_smoothing (voir ci-dessus)
         
         # === Évaluation ===
         "metric_method": "accuracy",
