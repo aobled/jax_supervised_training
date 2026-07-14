@@ -265,7 +265,12 @@ DATASET_CONFIGS = {
     },
 
     "CIFAR10": {
-        # === CONFIG BOUCLE DE TEST RAPIDE (pipeline, pas optimisation d'accuracy) ===
+        # === CONFIG BOUCLE DE TEST RAPIDE, tunée le 2026-07-14 (0.8110 -> 0.8582 val accuracy) ===
+        # Historique complet des runs et de la démarche d'isolation : voir dev notes de la session
+        # (git log sur ce fichier) et deferred-work.md. Résumé : augmentation (translation_factor)
+        # + patience/epochs plus généreux aident nettement (0.8110 -> 0.8582, Run A) ; batch=256 +
+        # LR scalée + mixup_alpha (v3, 0.8570) et + label_smoothing (v4, 0.8534) n'apportent RIEN
+        # de plus que Run A une fois isolés proprement - abandonnés, pas portés sur FIGHTERJET_CLASSIFICATION.
         # === Données ===
         "num_classes": 10,
         "class_names": ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck'],
@@ -293,9 +298,9 @@ DATASET_CONFIGS = {
 
         # === Hyperparamètres GPU ===
         "gpu": {
-            "micro_batch_size": 128,  # RUN A (isolation) : revenu à 128 (v2) - batch/LR volontairement PAS testés ici, cf. échelle d'isolation ci-dessous
+            "micro_batch_size": 128,  # batch=256+LR scalée (testé v3/v4) n'apportait rien de plus que epochs seul - non retenu
             "accum_steps": 1,
-            "learning_rate": 1e-3,  # RUN A : revenu à 1e-3 (v2), pas de scaling tant que le batch n'est pas remonté
+            "learning_rate": 1e-3,
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
         },
@@ -310,24 +315,21 @@ DATASET_CONFIGS = {
         },
 
         # === Entraînement ===
-        # RUN A d'une échelle d'isolation à 2 runs (2026-07-14), pour attribuer proprement le gain v2->v3 (0.8416->0.8570) :
-        #   v2 (référence, déjà fait)        : batch=128, lr=1e-3, epochs=30, decay_steps=11700, sans mixup -> 0.8416
-        #   RUN A - epochs seul (celui-ci)   : batch=128, lr=1e-3, epochs=45, decay_steps=17595, sans mixup -> isole l'effet "plus d'epochs"
-        #   RUN B - + batch/LR (à faire ensuite) : batch=256, lr=1.4e-3, epochs=45, decay_steps=8820, sans mixup -> isole l'effet batch/LR au-delà de A
-        #   v3 (référence, déjà fait)        : = RUN B + mixup_alpha=0.05 -> 0.8570
-        # Un seul paramètre change entre deux lignes consécutives. mixup/label_smoothing restent désactivés dans A et B
-        # (déjà isolés séparément : v2->v3 pour mixup, v3->v4 pour label_smoothing+mixup, v4=0.8534 < v3=0.8570).
         "optimizer": "adamw",
         "lr_schedule": "cosine",
-        "epochs": 45,          # inchangé par rapport à v3/v4 : c'est justement le paramètre qu'on NE fait PAS varier entre A et B
-        "patience": 8,
-        "warmup_steps": 200,  # RUN A : revenu à 200 (ratio d'origine pour steps/epoch=391 à batch=128)
-        "decay_steps": 17595,  # RUN A : 391 (steps/epoch à batch=128) × 45 (epochs) - PAS 8820, qui était calculé pour batch=256
+        "epochs": 45,          # 30 -> 45 (2026-07-14) : le levier qui compte vraiment - seul changement qui bat la référence v2 (0.8416 -> 0.8582)
+        "patience": 8,  # 5 -> 8 : nécessaire pour laisser les 45 epochs se dérouler sans early-stop prématuré
+        "warmup_steps": 200,
+        "decay_steps": 17595,  # 391 (steps/epoch à micro_batch_size=128) × 45 (epochs) - recalculer si l'un des deux change (cf. bug Epic 5 Addendum 3)
+        # PAS de mixup_alpha/label_smoothing : testés (v3 avec mixup=0.05 -> 0.8570, v4 +smoothing=0.15 -> 0.8534),
+        # tous les deux sous la référence epochs-seul ci-dessus (0.8582) une fois isolés proprement du changement de batch/LR.
+        # Le bug de code qui les rendait mutuellement exclusifs reste corrigé (task_strategies.py:110-118),
+        # mais aucun des deux n'a de valeur démontrée sur ce dataset - rien à porter sur FIGHTERJET_CLASSIFICATION.
 
         # === Évaluation ===
         "metric_method": "accuracy",
         "report_method": "confusion_matrix",
-        "eval_batch_size": 128,  # volontairement non couplé à micro_batch_size (256) : hors schedule LR, pas de contrainte de cohérence entre les deux
+        "eval_batch_size": 128,
         "eval_use_subset": False,  # 10 000 images val, taille déjà raisonnable
 
         # === Sauvegarde ===

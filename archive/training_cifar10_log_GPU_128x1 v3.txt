@@ -1,0 +1,384 @@
+RAM du système	3.4 / 12.7 GB
+RAM du GPU		11.0 / 15.0 GB
+Disque					46.9 / 112.6 GB
+
+
+
+🖥️  GPU détecté
+📊 GPU: Utilisation de float16
+Backend JAX: gpu
+Devices: [CudaDevice(id=0)]
+Using device: cuda:0
+🎯 Dataset spécifié: CIFAR10
+
+📊 Chargement de la configuration: CIFAR10
+
+📊 CONFIGURATION: CIFAR10
+============================================================
+Classes: 10
+Noms: ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+Image size: (32, 32)
+Modèle: sophisticated_cnn_32_plus
+Epochs: 45
+Patience: 8
+
+TPU: batch=256×1, lr=0.0014, wd=5e-05
+GPU: batch=256×1, lr=0.0014, wd=5e-05
+============================================================
+
+📁 GESTION DES DONNÉES
+============================================================
+🔄 Initialisation du pipeline de données pour la tâche : CLASSIFICATION
+📦 Classification Dataset: 1 train chunks, 1 val chunks [RGB (3 canaux)]
+✅ Chunks de classification trouvés
+📊 Calcul des statistiques complètes...
+  Train chunk dataset_cifar10_train_chunk0.npz: 50000 échantillons
+  Val chunk dataset_cifar10_val_chunk0.npz: 10000 échantillons
+📊 STATISTIQUES:
+   Train: 1 chunks, ~50000 échantillons
+   Val: 1 chunks, ~10000 échantillons
+
+🔍 Vérification des datasets...
+📊 Train: shape=(256, 32, 32, 3), targets=(256,)
+📊 Val: shape=(256, 32, 32, 3), targets=(256,)
+
+🏗️  CRÉATION DU MODÈLE
+============================================================
+Modèle: sophisticated_cnn_32_plus
+Classes: 10
+Dropout: 0.3
+🎯 Application de la logique d'entraînement : CLASSIFICATION
+
+🎯 CRÉATION DU TRAINER
+============================================================
+
+🚀 LANCEMENT DE L'ENTRAÎNEMENT
+============================================================
+💾 RAM avant entraînement: 17.5%
+📊 TAILLE DU MODÈLE:
+   Paramètres totaux: 318,691
+   Taille: 1.2 MB
+⚠️  Aucun checkpoint trouvé: best_model_training_state_cifar10.pkl
+🚀 Démarrage d'un nouvel entraînement
+
+Epoch 1/45 - training...
+💾 RAM: 21.3% (2.4GB/12.7GB)
+Training: 196it [02:03,  1.59it/s]
+Train | Loss=1.7275 | Accuracy=0.3841 | Time=123.5s
+Val   | Loss=1.6627 | Accuracy=0.3979 | Time=14.9s
+[✓] New best model saved (Accuracy=0.3979)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 2/45 - training...
+Training: 196it [01:08,  2.86it/s]
+Train | Loss=1.2733 | Accuracy=0.5609 | Time=81.9s
+Val   | Loss=1.2754 | Accuracy=0.5442 | Time=5.0s
+[✓] New best model saved (Accuracy=0.5442)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 3/45 - training...
+Training: 196it [01:08,  2.86it/s]
+Train | Loss=1.1268 | Accuracy=0.6267 | Time=68.6s
+Val   | Loss=1.1698 | Accuracy=0.5839 | Time=5.0s
+[✓] New best model saved (Accuracy=0.5839)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 4/45 - training...
+Training: 196it [01:10,  2.79it/s]
+Train | Loss=1.0079 | Accuracy=0.6700 | Time=81.9s
+Val   | Loss=0.9652 | Accuracy=0.6621 | Time=4.3s
+[✓] New best model saved (Accuracy=0.6621)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 5/45 - training...
+Training: 196it [01:11,  2.74it/s]
+Train | Loss=0.9398 | Accuracy=0.6987 | Time=71.6s
+Val   | Loss=0.9268 | Accuracy=0.6721 | Time=4.8s
+[✓] New best model saved (Accuracy=0.6721)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 6/45 - training...
+💾 RAM: 30.9% (3.5GB/12.7GB)
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.8609 | Accuracy=0.7267 | Time=82.0s
+Val   | Loss=0.8270 | Accuracy=0.7101 | Time=4.9s
+[✓] New best model saved (Accuracy=0.7101)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 7/45 - training...
+Training: 196it [01:11,  2.74it/s]
+Train | Loss=0.7860 | Accuracy=0.7516 | Time=71.6s
+Val   | Loss=0.8385 | Accuracy=0.7063 | Time=4.5s
+
+Epoch 8/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.7691 | Accuracy=0.7595 | Time=69.5s
+Val   | Loss=0.7438 | Accuracy=0.7514 | Time=4.5s
+[✓] New best model saved (Accuracy=0.7514)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 9/45 - training...
+Training: 196it [01:08,  2.84it/s]
+Train | Loss=0.7702 | Accuracy=0.7718 | Time=69.0s
+Val   | Loss=0.6987 | Accuracy=0.7583 | Time=10.2s
+[✓] New best model saved (Accuracy=0.7583)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 10/45 - training...
+Training: 196it [01:09,  2.84it/s]
+Train | Loss=0.7254 | Accuracy=0.7892 | Time=69.1s
+Val   | Loss=0.7159 | Accuracy=0.7539 | Time=4.4s
+
+Epoch 11/45 - training...
+💾 RAM: 32.6% (3.7GB/12.7GB)
+Training: 196it [01:09,  2.83it/s]
+Train | Loss=0.6745 | Accuracy=0.7960 | Time=69.3s
+Val   | Loss=0.6724 | Accuracy=0.7699 | Time=4.7s
+[✓] New best model saved (Accuracy=0.7699)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 12/45 - training...
+Training: 196it [01:08,  2.85it/s]
+Train | Loss=0.7046 | Accuracy=0.7950 | Time=68.8s
+Val   | Loss=0.7070 | Accuracy=0.7608 | Time=4.8s
+
+Epoch 13/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.6664 | Accuracy=0.8086 | Time=69.5s
+Val   | Loss=0.6602 | Accuracy=0.7741 | Time=4.3s
+[✓] New best model saved (Accuracy=0.7741)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 14/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.6571 | Accuracy=0.8150 | Time=69.5s
+Val   | Loss=0.5785 | Accuracy=0.8026 | Time=4.2s
+[✓] New best model saved (Accuracy=0.8026)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 15/45 - training...
+Training: 196it [01:08,  2.84it/s]
+Train | Loss=0.6556 | Accuracy=0.8236 | Time=69.0s
+Val   | Loss=0.6211 | Accuracy=0.7928 | Time=4.8s
+
+Epoch 16/45 - training...
+💾 RAM: 32.9% (3.7GB/12.7GB)
+Training: 196it [01:08,  2.87it/s]
+Train | Loss=0.6193 | Accuracy=0.8288 | Time=68.4s
+Val   | Loss=0.5931 | Accuracy=0.8053 | Time=5.1s
+[✓] New best model saved (Accuracy=0.8053)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 17/45 - training...
+Training: 196it [01:09,  2.80it/s]
+Train | Loss=0.5589 | Accuracy=0.8378 | Time=70.0s
+Val   | Loss=0.5539 | Accuracy=0.8123 | Time=4.3s
+[✓] New best model saved (Accuracy=0.8123)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 18/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.6200 | Accuracy=0.8397 | Time=81.9s
+Val   | Loss=0.5774 | Accuracy=0.8055 | Time=4.4s
+
+Epoch 19/45 - training...
+Training: 196it [01:10,  2.77it/s]
+Train | Loss=0.5859 | Accuracy=0.8466 | Time=70.8s
+Val   | Loss=0.5959 | Accuracy=0.7993 | Time=5.3s
+
+Epoch 20/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.5459 | Accuracy=0.8559 | Time=69.4s
+Val   | Loss=0.5048 | Accuracy=0.8313 | Time=4.3s
+[✓] New best model saved (Accuracy=0.8313)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 21/45 - training...
+💾 RAM: 31.7% (3.6GB/12.7GB)
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.5420 | Accuracy=0.8576 | Time=69.7s
+Val   | Loss=0.5302 | Accuracy=0.8244 | Time=4.3s
+
+Epoch 22/45 - training...
+Training: 196it [01:08,  2.86it/s]
+Train | Loss=0.4747 | Accuracy=0.8647 | Time=68.6s
+Val   | Loss=0.5450 | Accuracy=0.8157 | Time=4.4s
+
+Epoch 23/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.4951 | Accuracy=0.8643 | Time=82.0s
+Val   | Loss=0.4946 | Accuracy=0.8346 | Time=5.0s
+[✓] New best model saved (Accuracy=0.8346)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 24/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.4890 | Accuracy=0.8731 | Time=81.9s
+Val   | Loss=0.5260 | Accuracy=0.8258 | Time=4.3s
+
+Epoch 25/45 - training...
+Training: 196it [01:10,  2.78it/s]
+Train | Loss=0.5500 | Accuracy=0.8691 | Time=70.5s
+Val   | Loss=0.4940 | Accuracy=0.8314 | Time=4.3s
+
+Epoch 26/45 - training...
+💾 RAM: 32.7% (3.7GB/12.7GB)
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.5100 | Accuracy=0.8759 | Time=82.0s
+Val   | Loss=0.5148 | Accuracy=0.8313 | Time=4.9s
+
+Epoch 27/45 - training...
+Training: 196it [01:08,  2.85it/s]
+Train | Loss=0.4931 | Accuracy=0.8758 | Time=82.0s
+Val   | Loss=0.4830 | Accuracy=0.8398 | Time=4.8s
+[✓] New best model saved (Accuracy=0.8398)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 28/45 - training...
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.4455 | Accuracy=0.8923 | Time=69.9s
+Val   | Loss=0.4766 | Accuracy=0.8418 | Time=4.3s
+[✓] New best model saved (Accuracy=0.8418)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 29/45 - training...
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.4280 | Accuracy=0.8955 | Time=69.9s
+Val   | Loss=0.4832 | Accuracy=0.8377 | Time=4.5s
+
+Epoch 30/45 - training...
+Training: 196it [01:09,  2.82it/s]
+Train | Loss=0.5125 | Accuracy=0.8830 | Time=69.6s
+Val   | Loss=0.4846 | Accuracy=0.8405 | Time=10.2s
+
+Epoch 31/45 - training...
+💾 RAM: 32.8% (3.7GB/12.7GB)
+Training: 196it [01:10,  2.80it/s]
+Train | Loss=0.4272 | Accuracy=0.8956 | Time=70.1s
+Val   | Loss=0.4757 | Accuracy=0.8430 | Time=4.6s
+[✓] New best model saved (Accuracy=0.8430)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 32/45 - training...
+Training: 196it [01:08,  2.86it/s]
+Train | Loss=0.4707 | Accuracy=0.8954 | Time=82.0s
+Val   | Loss=0.4720 | Accuracy=0.8439 | Time=5.2s
+[✓] New best model saved (Accuracy=0.8439)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 33/45 - training...
+Training: 196it [01:10,  2.79it/s]
+Train | Loss=0.3936 | Accuracy=0.9042 | Time=70.4s
+Val   | Loss=0.4602 | Accuracy=0.8496 | Time=5.1s
+[✓] New best model saved (Accuracy=0.8496)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 34/45 - training...
+Training: 196it [01:10,  2.80it/s]
+Train | Loss=0.4357 | Accuracy=0.8985 | Time=70.0s
+Val   | Loss=0.4537 | Accuracy=0.8508 | Time=5.1s
+[✓] New best model saved (Accuracy=0.8508)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 35/45 - training...
+Training: 196it [01:08,  2.88it/s]
+Train | Loss=0.4340 | Accuracy=0.9015 | Time=68.1s
+Val   | Loss=0.4674 | Accuracy=0.8483 | Time=5.0s
+
+Epoch 36/45 - training...
+💾 RAM: 30.8% (3.4GB/12.7GB)
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.3977 | Accuracy=0.9064 | Time=81.9s
+Val   | Loss=0.4486 | Accuracy=0.8514 | Time=4.9s
+[✓] New best model saved (Accuracy=0.8514)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 37/45 - training...
+Training: 196it [01:10,  2.80it/s]
+Train | Loss=0.3603 | Accuracy=0.9147 | Time=70.1s
+Val   | Loss=0.4441 | Accuracy=0.8555 | Time=4.4s
+[✓] New best model saved (Accuracy=0.8555)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 38/45 - training...
+Training: 196it [01:09,  2.84it/s]
+Train | Loss=0.3944 | Accuracy=0.9114 | Time=69.1s
+Val   | Loss=0.4486 | Accuracy=0.8539 | Time=4.4s
+
+Epoch 39/45 - training...
+Training: 196it [01:08,  2.85it/s]
+Train | Loss=0.3925 | Accuracy=0.9073 | Time=68.7s
+Val   | Loss=0.4473 | Accuracy=0.8559 | Time=5.0s
+[✓] New best model saved (Accuracy=0.8559)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 40/45 - training...
+Training: 196it [01:08,  2.86it/s]
+Train | Loss=0.4044 | Accuracy=0.9083 | Time=68.5s
+Val   | Loss=0.4439 | Accuracy=0.8569 | Time=5.1s
+[✓] New best model saved (Accuracy=0.8569)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 41/45 - training...
+💾 RAM: 31.4% (3.5GB/12.7GB)
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.4363 | Accuracy=0.9090 | Time=81.9s
+Val   | Loss=0.4458 | Accuracy=0.8570 | Time=4.3s
+[✓] New best model saved (Accuracy=0.8570)
+   [💾] Export pur PKL généré: best_model_cifar10.pkl
+
+Epoch 42/45 - training...
+Training: 196it [01:08,  2.84it/s]
+Train | Loss=0.3942 | Accuracy=0.9133 | Time=69.0s
+Val   | Loss=0.4449 | Accuracy=0.8569 | Time=4.5s
+
+Epoch 43/45 - training...
+Training: 196it [01:08,  2.84it/s]
+Train | Loss=0.4363 | Accuracy=0.8983 | Time=69.0s
+Val   | Loss=0.4457 | Accuracy=0.8562 | Time=5.1s
+
+Epoch 44/45 - training...
+Training: 196it [01:07,  2.88it/s]
+Train | Loss=0.3728 | Accuracy=0.9151 | Time=68.0s
+Val   | Loss=0.4447 | Accuracy=0.8557 | Time=4.9s
+
+Epoch 45/45 - training...
+Training: 196it [01:09,  2.81it/s]
+Train | Loss=0.4057 | Accuracy=0.9100 | Time=69.9s
+Val   | Loss=0.4448 | Accuracy=0.8557 | Time=4.3s
+
+🎯 ENTRAÎNEMENT TERMINÉ
+   Meilleur Accuracy validation: 0.8570
+
+📊 GÉNÉRATION DES MÉTRIQUES DÉLÉGUÉE À LA STRATÉGIE
+============================================================
+🔍 Chargement du modèle depuis le fichier .pkl...
+🔍 Modèle sauvegardé: sophisticated_cnn_32_plus, 10 classes
+⚠️  ATTENTION: Le fichier .pkl doit correspondre au modèle sophisticated_cnn_32_plus avec 10 classes
+📊 Collecte des données du dataset...
+📊 Dataset: 10000 images, 10 classes
+🔮 Génération des prédictions...
+Prédictions: 100% 79/79 [00:34<00:00,  2.30it/s]
+💾 Matrice de confusion sauvegardée: confusion_matrix_cifar10.png
+
+📈 RÉSULTATS DE LA MATRICE DE CONFUSION:
+Accuracy globale: 0.8566
+Macro Precision: 0.8560
+Macro Recall: 0.8566
+Macro F1: 0.8556
+
+📊 DÉTAILS PAR CLASSE:
+airplane: Precision=0.846, Recall=0.898, F1=0.871
+automobile: Precision=0.913, Recall=0.949, F1=0.931
+bird: Precision=0.835, Recall=0.796, F1=0.815
+cat: Precision=0.736, Recall=0.696, F1=0.715
+deer: Precision=0.872, Recall=0.813, F1=0.842
+dog: Precision=0.810, Recall=0.766, F1=0.787
+frog: Precision=0.834, Recall=0.939, F1=0.883
+horse: Precision=0.886, Recall=0.895, F1=0.891
+ship: Precision=0.931, Recall=0.899, F1=0.915
+truck: Precision=0.896, Recall=0.915, F1=0.905
+✅ Matrice de confusion générée avec succès depuis l'export pur (pkl) !
+
+🏁 Programme terminé
+   Meilleur score validation (Accuracy ou Loss): 0.8570
