@@ -8,7 +8,7 @@ import tqdm
 CSV_TRAIN_PATH = "/home/aobled/Downloads/kepler/exoTrain.csv"
 CSV_TEST_PATH = "/home/aobled/Downloads/kepler/exoTest.csv"
 
-OUTPUT_DIR = "/home/aobled/Desktop/Development/JAX_Detection/data/chunks/kepler" # Relative path
+OUTPUT_DIR = "/home/aobled/Desktop/Development/jax_supervised_training/data/chunks/kepler" # Relative path
 TRAIN_OUTPUT_PREFIX = os.path.join(OUTPUT_DIR, "dataset_kepler_train_chunk")
 TEST_OUTPUT_PREFIX = os.path.join(OUTPUT_DIR, "dataset_kepler_val_chunk")
 

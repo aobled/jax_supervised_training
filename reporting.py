@@ -55,7 +55,7 @@ class Reporter:
         
         # Extraire les données du modèle (structure de main.py)
         if 'config' in model_data:
-            # Nouvelle structure unifiée JAX_Detection
+            # Nouvelle structure unifiée jax_supervised_training
             params = model_data['params']
             batch_stats = model_data.get('batch_stats', {})
             model_name = model_data['config'].get('model_name', 'sophisticated_cnn_128_plus')

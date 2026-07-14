@@ -4,7 +4,7 @@ import os
 import time
 
 # Ajouter le répertoire parent en PRIORITÉ absolue (index 0) pour forcer Python
-# à utiliser le model_library.py de JAX_Detection (et non celui de JAX_Classification si exécuté depuis l'autre dossier)
+# à utiliser le model_library.py de jax_supervised_training (et non celui de JAX_Classification si exécuté depuis l'autre dossier)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Remplace YOLO import par JAX/Flax helpers si nécessaire

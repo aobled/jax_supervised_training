@@ -1,4 +1,4 @@
-# Index de documentation — JAX_Detection
+# Index de documentation — jax_supervised_training
 
 _Généré par `bmad-document-project`, 2026-07-12. Point d'entrée principal pour tout travail assisté par IA sur ce projet._
 
@@ -39,4 +39,4 @@ Quand on passera à la rédaction du PRD de refactor, pointer le workflow PRD ve
 ```bash
 python main.py FIGHTERJET_CLASSIFICATION   # ou FIGHTERJET_DETECTION
 ```
-Voir [development-guide.md](./development-guide.md) pour le détail (environnement conda `jax_env`, variable `JAX_DETECTION_DATA_ROOT` pour Colab).
+Voir [development-guide.md](./development-guide.md) pour le détail (environnement conda `jax_env`, variable `JAX_SUPERVISED_TRAINING_DATA_ROOT` pour Colab).

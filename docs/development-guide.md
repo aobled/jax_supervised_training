@@ -1,4 +1,4 @@
-# Guide de développement — JAX_Detection
+# Guide de développement — jax_supervised_training
 
 _Généré par `bmad-document-project`, 2026-07-12._
 
@@ -17,10 +17,10 @@ python main.py [DATASET_NAME]   # défaut : FIGHTERJET_CLASSIFICATION
 
 ## Exécution sur Google Colab
 
-Le chemin des datasets chunkés (`.npz`) est piloté par la variable d'environnement `JAX_DETECTION_DATA_ROOT` (résolue dans `dataset_configs.py` via `DATA_ROOT = os.environ.get(...)`, fallback sur le chemin local). Sur Colab, définir **avant** `import dataset_configs` :
+Le chemin des datasets chunkés (`.npz`) est piloté par la variable d'environnement `JAX_SUPERVISED_TRAINING_DATA_ROOT` (résolue dans `dataset_configs.py` via `DATA_ROOT = os.environ.get(...)`, fallback sur le chemin local). Sur Colab, définir **avant** `import dataset_configs` :
 ```python
 import os
-os.environ["JAX_DETECTION_DATA_ROOT"] = "/content/drive/MyDrive/JAX_Detection/data"
+os.environ["JAX_SUPERVISED_TRAINING_DATA_ROOT"] = "/content/drive/MyDrive/jax_supervised_training/data"
 ```
 (Mis en place le 2026-07-12, cf. session de refactor précédente.)
 
@@ -34,4 +34,4 @@ Aucun `Dockerfile`, pipeline CI (`.github/workflows/`, `.gitlab-ci.yml`) ni infr
 
 ## Point d'entrée legacy supprimé
 
-`train_detection.py` était un vestige confirmé (fusion historique JAX_Detection/JAX_Classification) — **supprimé le 2026-07-12** (récupérable via l'historique git). `main.py` est le seul point d'entrée. Voir `dead-code-and-duplication-audit.md`.
+`train_detection.py` était un vestige confirmé (fusion historique jax_supervised_training/JAX_Classification) — **supprimé le 2026-07-12** (récupérable via l'historique git). `main.py` est le seul point d'entrée. Voir `dead-code-and-duplication-audit.md`.

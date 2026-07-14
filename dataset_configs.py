@@ -8,9 +8,9 @@ import os
 import numpy as np
 
 # Racine des datasets chunkés (.npz). Local par défaut ; sur Colab, définir
-# JAX_DETECTION_DATA_ROOT (ex: /content/drive/MyDrive/JAX_Detection/data)
+# JAX_SUPERVISED_TRAINING_DATA_ROOT (ex: /content/drive/MyDrive/jax_supervised_training/data)
 # AVANT d'importer ce module.
-DATA_ROOT = os.environ.get("JAX_DETECTION_DATA_ROOT", "/home/aobled/Documents/data")
+DATA_ROOT = os.environ.get("JAX_SUPERVISED_TRAINING_DATA_ROOT", "/home/aobled/Documents/data")
 
 
 def validate_config(config_name, config):

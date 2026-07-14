@@ -1,10 +1,10 @@
-# Project Overview — JAX_Detection
+# Project Overview — jax_supervised_training
 
 _Généré par `bmad-document-project`, 2026-07-12._
 
 ## Nom et objet
 
-**JAX_Detection** : pipeline JAX/Flax pour la détection (bounding boxes) et la classification d'images d'avions, en deux modèles chaînés — un modèle de détection localise les avions, un modèle de classification identifie le type d'appareil dans chaque box détectée. Les deux modèles sont en production et fonctionnent bien.
+**jax_supervised_training** : pipeline JAX/Flax pour la détection (bounding boxes) et la classification d'images d'avions, en deux modèles chaînés — un modèle de détection localise les avions, un modèle de classification identifie le type d'appareil dans chaque box détectée. Les deux modèles sont en production et fonctionnent bien.
 
 Le code est conçu comme un **pipeline générique piloté par configuration** (`dataset_configs.py`), réutilisable pour d'autres typologies de tâches que la détection/classification aéronautique — démontré par la config `JAX_KEPLER` (1D CNN, tâche sans rapport).
 

@@ -1,4 +1,4 @@
-rclone sync /home/aobled/Desktop/Development/JAX_Detection gdrive:JAX_Detection \
+rclone sync /home/aobled/Desktop/Development/jax_supervised_training gdrive:jax_supervised_training \
     -P \
     --exclude=".git/" \
     --exclude="__pycache__/" \
@@ -8,7 +8,7 @@ rclone sync /home/aobled/Desktop/Development/JAX_Detection gdrive:JAX_Detection 
     --exclude="_bmad-output/
     --exclude=".claude/"
 
-rclone sync /home/aobled/Documents/data/chunks/cifar10 gdrive:JAX_Detection/data/chunks/cifar10 -P
+rclone sync /home/aobled/Documents/data/chunks/cifar10 gdrive:jax_supervised_training/data/chunks/cifar10 -P
 
 
 from google.colab import drive

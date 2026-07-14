@@ -1,9 +1,9 @@
-# Arborescence annotée — JAX_Detection
+# Arborescence annotée — jax_supervised_training
 
 _Généré par `bmad-document-project`, 2026-07-12. Reflète l'état réel du code (structure "à plat", pas de packaging Python standard)._
 
 ```
-JAX_Detection/
+jax_supervised_training/
 ├── dataset_configs.py          # Config centralisée (DATASET_CONFIGS dict). Point d'entrée n°1 du pipeline.
 ├── data_management.py          # Pipeline tf.data : chargement .npz, normalisation, augmentation, batching
 ├── model_library.py            # Factory de modèles (MODELS dict + get_model()). 466 lignes (post-purge 2026-07-12, était 2614) — 4 architectures actives
@@ -46,7 +46,7 @@ JAX_Detection/
 
 ## Points d'entrée
 
-- **`main.py`** — point d'entrée unique, pilote tout via `dataset_configs.py`. (`train_detection.py`, l'ancien point d'entrée alternatif dédié détection, a été supprimé le 2026-07-12 — vestige confirmé de la fusion historique JAX_Detection/JAX_Classification, récupérable via l'historique git.)
+- **`main.py`** — point d'entrée unique, pilote tout via `dataset_configs.py`. (`train_detection.py`, l'ancien point d'entrée alternatif dédié détection, a été supprimé le 2026-07-12 — vestige confirmé de la fusion historique jax_supervised_training/JAX_Classification, récupérable via l'historique git.)
 
 ## Absence de packaging
 

@@ -6,13 +6,14 @@ inputDocuments:
   - docs/dead-code-and-duplication-audit.md
   - docs/architecture.md
   - docs/source-tree-analysis.md
+  - _bmad-output/planning-artifacts/prds/prd-JAX_Detection-2026-07-14/prd.md
 ---
 
-# Refactor JAX_Detection — Epic Breakdown
+# Refactor jax_supervised_training — Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for the JAX_Detection refactor (nettoyage code mort et duplications), decomposing the requirements from the PRD and the Architecture Spine into implementable stories. No UX design contract applies — this is an internal code refactor with no user-facing interface changes.
+This document provides the complete epic and story breakdown for the jax_supervised_training refactor (nettoyage code mort et duplications), decomposing the requirements from the PRD and the Architecture Spine into implementable stories. No UX design contract applies — this is an internal code refactor with no user-facing interface changes.
 
 ## Requirements Inventory
 
@@ -24,7 +25,7 @@ FR3: Pour chaque fonction ayant des comportements divergents entre fichiers, un 
 FR4: `dataset_configs.py` ne conserve que `FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`. Suppression de `FIGHTERJET_VIT`, `FIGHTERJET_HYBRID_VIT`, `FIGHTERJET_LETTERBOX`, `FIGHTERJET_DETECTION_SOPHISTICATED`.
 FR5: `model_library.py` ne conserve que les architectures référencées par les 3 configs restantes : `sophisticated_cnn_128_plus`, `aircraft_detector_unet`, `aircraft_detector_miniunet`, `kepler_1d_cnn`. Les 18 autres architectures de `MODELS` sont supprimées.
 FR6: Avant suppression d'une architecture, vérifier qu'aucun `.pkl` actuellement versionné (`best_model.pkl`, `best_model_detection.pkl`) n'en dépend.
-FR7: `train_detection.py` est supprimé (vestige confirmé de la fusion historique JAX_Detection/JAX_Classification).
+FR7: `train_detection.py` est supprimé (vestige confirmé de la fusion historique jax_supervised_training/JAX_Classification).
 FR8: `tokens/` est supprimé intégralement (expérience token-based model vs UNet abandonnée, jamais raccordée au pipeline actif).
 FR9: `bounding_boxes_with_classification_from_benchmark.py` est supprimé intégralement (et non fusionné dans le module partagé). Sa logique de décodage de détection (`decode_grid_and_detect`) est spécifique aux architectures grid-based supprimées par FR5.
 FR10: `tools/audit_dataset_detection.py` et `tools/boxes_process_manual_tkinter.py` — des consommateurs invisibles au scope initial, qui importent aujourd'hui des fonctions directement depuis l'espace de noms de `bounding_boxes_with_classification_from_video_generation.py` — sont repointés vers `inference_utils.py` dans ce même cycle.
@@ -388,7 +389,7 @@ Les vestiges confirmés (fusion historique, expérimentation abandonnée, script
 ### Story 3.1: Suppression de train_detection.py
 
 As a mainteneur du pipeline,
-I want supprimer train_detection.py, vestige confirmé de la fusion historique JAX_Detection/JAX_Classification,
+I want supprimer train_detection.py, vestige confirmé de la fusion historique jax_supervised_training/JAX_Classification,
 So that le point d'entrée du pipeline reste unique et non ambigu (main.py).
 
 **Acceptance Criteria:**
@@ -593,3 +594,99 @@ So that j'obtienne une boucle d'entraînement/test complète, exécutable locale
 **When** `main.py CIFAR10` est exécuté localement (CPU/GPU) sur un nombre réduit d'epochs
 **Then** l'entraînement se déroule sans erreur jusqu'à son terme, confirmant par l'exécution (pas seulement par lecture de code) la généricité du pipeline sur un second cas d'usage image
 **And** les fichiers `.pkl` produits (`best_model_cifar10.pkl`, `best_model_training_state_cifar10.pkl`) sont distincts de ceux de `FIGHTERJET_CLASSIFICATION`, confirmant par l'exécution que la Story 5.0 élimine bien la collision
+
+## Requirements Inventory — Renommage jax_supervised_training
+
+Source : `_bmad-output/planning-artifacts/prds/prd-JAX_Detection-2026-07-14/prd.md` (status: final). Initiative distincte du refactor Epic 1-3 — pas de document Architecture dédié (renommage mécanique, pas de nouvelle décision technique), cohérent avec le PRD lui-même.
+
+### Functional Requirements
+
+FR1: Le dossier local du projet et le dépôt distant `aobled/JAX_Detection` sont renommés en `jax_supervised_training` ; le remote git local est mis à jour vers la nouvelle URL.
+FR2: La variable d'environnement `JAX_DETECTION_DATA_ROOT` (seul site de lecture : `dataset_configs.py::DATA_ROOT`) est renommée en `JAX_SUPERVISED_TRAINING_DATA_ROOT`, sans compatibilité double-nom. Tout notebook Colab actif définissant cette variable est mis à jour dans le même geste.
+FR3: Le dossier Google Drive `MyDrive/JAX_Detection/` est renommé en `MyDrive/jax_supervised_training/`. Tout notebook Colab actif référençant l'ancien chemin est mis à jour dans le même geste. `tools/process rclone GDrive and run collab.txt` (pense-bête manuel) est explicitement hors scope, laissé à la charge de l'utilisateur.
+FR4: Toute référence textuelle à "JAX_Detection"/"JAX_DETECTION" dans le code activement importé (6 fichiers), `docs/` (6 fichiers) et les artefacts BMAD **vivants** (`sprint-status.yaml`, `epics.md`) est mise à jour. Les artefacts BMAD historiques datés (dossiers PRD/architecture snapshotés du 2026-07-12, rétrospectives passées, `docs/project-scan-report.json`) restent explicitement non touchés.
+
+### NonFunctional Requirements
+
+NFR1 — Non-régression fonctionnelle : un entraînement lancé après renommage (`FIGHTERJET_CLASSIFICATION` ou `CIFAR10`, sur Colab) produit un comportement identique à avant renommage — seuls les noms/chemins changent. Validé par exécution réelle, pas par lecture de code.
+NFR2 — Pas d'échec silencieux : si un point de lecture de l'ancien nom (variable d'environnement, chemin Drive) est oublié, l'échec doit être détectable rapidement (erreur explicite), jamais un fallback silencieux vers un chemin local inexistant sur Colab.
+
+### Additional Requirements (Architecture)
+
+Aucun — pas de document Architecture pour cette initiative (confirmé avec l'utilisateur).
+
+### UX Design Requirements
+
+N/A — aucune interface utilisateur, pas de parcours à documenter (projet solo, un seul opérateur).
+
+## Epic List
+
+### Epic 6 : Renommage du projet en jax_supervised_training
+
+Le projet porte un nom cohérent sur toutes ses surfaces actives (dossier local, dépôt GitHub, variable d'environnement, dossier Google Drive, code, documentation) — reflétant la généricité déjà prouvée du pipeline, sans laisser de référence résiduelle à l'ancien nom dans un chemin actif.
+**FRs covered:** FR1, FR2, FR3, FR4
+
+### FR Coverage Map
+
+FR1: Epic 6 — Renommage dossier local + dépôt GitHub
+FR2: Epic 6 — Renommage variable d'environnement `JAX_DETECTION_DATA_ROOT`
+FR3: Epic 6 — Renommage dossier Google Drive
+FR4: Epic 6 — Mise à jour références textuelles (code, docs, artefacts vivants)
+
+## Epic 6: Renommage du projet en jax_supervised_training
+
+Le projet porte un nom cohérent sur toutes ses surfaces actives (dossier local, dépôt GitHub, variable d'environnement, dossier Google Drive, code, documentation) — reflétant la généricité déjà prouvée du pipeline, sans laisser de référence résiduelle à l'ancien nom dans un chemin actif. **FRs covered:** FR1, FR2, FR3, FR4
+
+### Story 6.1: Renommage du dossier local et du dépôt GitHub
+
+As a mainteneur du projet,
+I want renommer le dossier local et le dépôt GitHub en `jax_supervised_training`,
+So that l'identité du projet reflète sa portée réelle avant toute autre étape de renommage.
+
+**Acceptance Criteria:**
+
+**Given** le dossier local `JAX_Detection` et le dépôt distant `aobled/JAX_Detection`
+**When** le dossier est renommé et `gh repo rename` (ou équivalent) est exécuté
+**Then** le dossier local répond au nouveau nom et le remote local (`git remote -v`) pointe vers la nouvelle URL
+**And** l'ancienne URL GitHub redirige encore vers le nouveau dépôt (comportement natif, vérifié)
+
+### Story 6.2: Renommage de la variable d'environnement et du dossier Google Drive
+
+As a mainteneur du projet,
+I want renommer `JAX_DETECTION_DATA_ROOT` en `JAX_SUPERVISED_TRAINING_DATA_ROOT` et le dossier Drive `MyDrive/JAX_Detection/` en `MyDrive/jax_supervised_training/`,
+So that le pipeline de données fonctionne sous le nouveau nom sans mécanisme de compatibilité.
+
+**Acceptance Criteria:**
+
+**Given** `dataset_configs.py::DATA_ROOT` (seul site de lecture de la variable) et le dossier Drive utilisé par les notebooks Colab
+**When** la variable et le dossier sont renommés
+**Then** `dataset_configs.py` ne référence plus `JAX_DETECTION_DATA_ROOT`, sans fallback vers l'ancien nom
+**And** chaque notebook Colab actif est mis à jour vers la nouvelle variable et le nouveau chemin Drive, dans le même geste — pas en différé (checklist explicite avant/après, ce mode d'échec s'étant déjà produit une fois sur ce projet)
+**And** `tools/process rclone GDrive and run collab.txt` n'est pas touché — laissé à la charge de l'utilisateur (hors scope confirmé)
+
+### Story 6.3: Mise à jour des références textuelles — code, documentation, artefacts vivants
+
+As a mainteneur du projet,
+I want mettre à jour toute référence textuelle à "JAX_Detection" dans le code actif, `docs/` et les artefacts BMAD vivants,
+So that aucune trace de l'ancien nom ne subsiste dans une source consultée en continu.
+
+**Acceptance Criteria:**
+
+**Given** les 6 fichiers de code identifiés (`dataset_configs.py`, `inference_utils.py`, `reporting.py`, `bounding_boxes_with_classification_from_video_generation.py`, `tools/bounding_boxes_with_classification_from_images_generation.py`, `tools/kepler_dataset_tools.py`) et les 6 fichiers `docs/`
+**When** ils sont mis à jour
+**Then** aucun ne contient plus "JAX_Detection"/"JAX_DETECTION"
+**And** `sprint-status.yaml` (champ `project:`) et `epics.md` sont mis à jour — traités comme artefacts vivants, pas historiques
+**And** les artefacts BMAD historiques datés (dossiers PRD/architecture du 2026-07-12, rétrospectives passées, `docs/project-scan-report.json`) restent explicitement non touchés
+
+### Story 6.4: Validation finale par exécution réelle
+
+As a mainteneur du projet,
+I want lancer un entraînement Colab complet après renommage,
+So that la non-régression fonctionnelle (NFR1) et l'absence d'échec silencieux (NFR2) soient prouvées par l'exécution, pas par la lecture de code.
+
+**Acceptance Criteria:**
+
+**Given** les Stories 6.1 à 6.3 complétées
+**When** `main.py` est exécuté sur Colab (`FIGHTERJET_CLASSIFICATION` ou `CIFAR10`) sous le nouveau nom
+**Then** l'entraînement démarre et se déroule sans erreur de chemin, avec un comportement identique à avant renommage
+**And** si un point de lecture de l'ancien nom avait été oublié, l'échec se serait manifesté immédiatement et explicitement (pas un fallback silencieux) — confirmé a posteriori par l'absence d'un tel incident

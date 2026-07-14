@@ -5,7 +5,7 @@ la prédiction et le décodage de détection par segmentation. Tout fichier qui 
 besoin d'une de ces fonctions importe depuis ce module — aucune redéfinition
 locale (voir ARCHITECTURE-SPINE.md, AD-1 à AD-8).
 
-Auteur unique (AD-7) : aucune autre story du refactor JAX_Detection ne doit
+Auteur unique (AD-7) : aucune autre story du refactor jax_supervised_training ne doit
 modifier ce fichier pour y ajouter ou changer une fonction.
 """
 import os

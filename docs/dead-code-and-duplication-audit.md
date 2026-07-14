@@ -1,4 +1,4 @@
-# Audit — Code mort et duplications (JAX_Detection)
+# Audit — Code mort et duplications (jax_supervised_training)
 
 _Généré par le workflow `bmad-document-project` (scan brownfield), 2026-07-12. Complète `strat_global.md` en documentant l'écart entre l'architecture cible et l'état réel du code._
 
@@ -6,7 +6,7 @@ _**Post-refactor (2026-07-12)** : les éléments recensés dans cet audit ont é
 
 ## 0. Point d'entrée vestige confirmé : `train_detection.py`
 
-Vestige de l'époque où `JAX_Detection` et `JAX_Classification` étaient deux projets fusionnés. Contourne complètement le pattern Strategy actuel (`main.py`/`Trainer`/`TaskStrategy`) : `CONFIG` codé en dur, import direct de `AircraftDetector`/`DetectionDataset`, pointe vers `aircraft_detector_v3` (un des 15 modèles morts de la section 1), doublon `from tqdm import tqdm` (l.17-18). **Confirmé par l'utilisateur (2026-07-12) : à archiver puis supprimer, n'apporte plus rien.** → **Supprimé (Story 3.1).**
+Vestige de l'époque où `jax_supervised_training` et `JAX_Classification` étaient deux projets fusionnés. Contourne complètement le pattern Strategy actuel (`main.py`/`Trainer`/`TaskStrategy`) : `CONFIG` codé en dur, import direct de `AircraftDetector`/`DetectionDataset`, pointe vers `aircraft_detector_v3` (un des 15 modèles morts de la section 1), doublon `from tqdm import tqdm` (l.17-18). **Confirmé par l'utilisateur (2026-07-12) : à archiver puis supprimer, n'apporte plus rien.** → **Supprimé (Story 3.1).**
 
 ## 1. Architectures de modèles mortes (`model_library.py`)
 
