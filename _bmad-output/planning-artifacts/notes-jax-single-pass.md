@@ -92,9 +92,13 @@ Primitive JAX concret identifié : `jax.scipy.ndimage.map_coordinates` (ordre 1 
 3. ~~Nature du "recadrage différentiable"~~ — **résolu** : grid-sample continu (`jax.scipy.ndimage.map_coordinates`), déterministe (fonction pure des coordonnées de boîte déjà connues, pas de sous-réseau appris). Voir section ci-dessus.
 4. ~~Résolution de l'image source pour le crop~~ — **résolu** : résolution canonique fixée à 1920×1080 grayscale (hypothèse de travail d'Aymeric), toute source non conforme normalisée en python en amont du graphe (normalisation d'entrée, pas de la logique d'inférence — ne viole pas l'objectif "zéro python").
 5. ~~Couche d'entrée → 224×224~~ — **résolu** : resize fixe déterministe (voir décision "tête de détection" — pas de couche apprise pour cette étape).
-6. **Budget mémoire embarqué** : garder l'image 1920×1080 en mémoire device jusqu'à l'étape de crop, à quel batch size cible, sur quel matériel (T4 Colab actuel vs autre) — pas encore quantifié, mais forme désormais connue (résolution fixe), donc calculable.
+6. ~~Budget mémoire embarqué~~ — **résolu, non bloquant.** Image 1920×1080 grayscale float32 ≈ 8,3 Mo/image sur device — négligeable face à un T4 (16 Go), même à batch=32 (≈250 Mo). Pas de coût de rétropropagation à stocker (inférence pure, classification figée). Conclusion : le pipeline ne devrait pas être plus lourd/plus lent que l'actuel — probablement plus rapide (élimine l'overhead de la boucle Python séquentielle de crops cv2, remplacée par `vmap` parallèle sur GPU).
 7. **Backbone + Feature Pyramid** — explicitement reporté (voir décision "tête de détection"), pas abandonné. Réévaluer seulement si la détection des petits avions distants s'avère concrètement insuffisante en test.
-8. **Annotations d'entraînement au niveau boîte** — à confirmer (voir "Risques identifiés").
+8. ~~Annotations d'entraînement au niveau boîte~~ — **résolu**, voir "Risques identifiés" et section "Nouveau chantier identifié" ci-dessous.
+
+## Ressources — conclusion (2026-07-15)
+
+Question directe d'Aymeric : le pipeline unifié sera-t-il plus lourd/plus consommateur ? **Non.** Paramètres du modèle ≈ inchangés (classification figée identique, détecteur même famille sans backbone/FPN). Seul nouveau coût réel : garder l'image source (1920×1080) en mémoire device au lieu de la RAM CPU — quelques Mo, négligeable. Le retrait de la boucle Python séquentielle (remplacée par `vmap`) devrait même apporter un gain de vitesse, pas une perte.
 
 ## Décision (2026-07-14) : tête de détection par point central (style CenterNet), pas de backbone/FPN pour l'instant
 
