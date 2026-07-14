@@ -4,7 +4,7 @@ baseline_commit: be1a24e2f144c34d66189c5179562ffc700207dc
 
 # Story 6.4: Validation finale par exécution réelle
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,21 +19,21 @@ so that la non-régression fonctionnelle (NFR1) et l'absence d'échec silencieux
 
 ## Tasks / Subtasks
 
-- [ ] Task 0: Checklist AVANT de lancer l'entraînement (AC: 1, 2) — **action manuelle utilisateur, exécution Colab hors de cette session**
-  - [ ] Ouvrir un notebook Colab actif (celui déjà mis à jour en Story 6.2 avec `JAX_SUPERVISED_TRAINING_DATA_ROOT` et le chemin `/content/drive/MyDrive/jax_supervised_training/data`)
-  - [ ] Vérifier que Google Drive est bien monté sur `MyDrive/jax_supervised_training/` (et non plus `MyDrive/JAX_Detection/`) avant d'exécuter la cellule qui définit `os.environ["JAX_SUPERVISED_TRAINING_DATA_ROOT"]`
-  - [ ] Cloner/puller le dépôt renommé (`git@github.com:aobled/jax_supervised_training.git`, cf. Story 6.1) — pas l'ancienne URL
-  - [ ] S'assurer que le repo cloné sur Colab contient bien les commits des Stories 6.1-6.3 (notamment `dataset_configs.py` avec `JAX_SUPERVISED_TRAINING_DATA_ROOT` — cf. Dev Notes ci-dessous sur les commits non poussés)
-- [ ] Task 1: Lancer l'entraînement (AC: 1)
-  - [ ] Exécuter `python main.py CIFAR10` (recommandé — dataset le plus léger, boucle rapide, mis en place en Epic 5 précisément pour ce type de test) ou `python main.py FIGHTERJET_CLASSIFICATION`
-  - [ ] Laisser l'entraînement se dérouler jusqu'à `generate_reports` (fin de run) inclus — pas seulement le démarrage, pour couvrir tout chemin de lecture de fichier (checkpoints, rapports) qui pourrait dépendre de l'ancien nom
-- [ ] Task 2: Vérifier l'absence d'échec silencieux (AC: 2)
-  - [ ] Confirmer qu'aucune erreur de type chemin introuvable / variable d'environnement non définie n'est apparue
-  - [ ] Si une erreur apparaît : c'est le comportement attendu par l'AC2 en cas d'oubli (échec explicite, pas de fallback silencieux) — identifier le point de lecture oublié, le corriger (probable candidat additionnel non couvert par le grep des Stories 6.2/6.3, ex. notebook Colab non versionné autre que celui déjà mis à jour), puis relancer Task 1
-  - [ ] Comparer la sortie (courbes de loss, métriques finales, artefacts générés) à un run de référence pré-renommage si disponible, pour confirmer un comportement identique (pas seulement "ça ne plante pas")
-- [ ] Task 3: Clôture (AC: 1, 2)
-  - [ ] Reporter ici le résultat de l'exécution (dataset utilisé, succès/échec, éventuel correctif appliqué)
-  - [ ] Si succès : cocher Task 0-2, passer cette story et l'Epic 6 à `done`
+- [x] Task 0: Checklist AVANT de lancer l'entraînement (AC: 1, 2) — **action manuelle utilisateur, exécution Colab hors de cette session**
+  - [x] Ouvrir un notebook Colab actif (celui déjà mis à jour en Story 6.2 avec `JAX_SUPERVISED_TRAINING_DATA_ROOT` et le chemin `/content/drive/MyDrive/jax_supervised_training/data`)
+  - [x] Vérifier que Google Drive est bien monté sur `MyDrive/jax_supervised_training/` (et non plus `MyDrive/JAX_Detection/`) avant d'exécuter la cellule qui définit `os.environ["JAX_SUPERVISED_TRAINING_DATA_ROOT"]`
+  - [x] Cloner/puller le dépôt renommé (`git@github.com:aobled/jax_supervised_training.git`, cf. Story 6.1) — pas l'ancienne URL
+  - [x] S'assurer que le repo cloné sur Colab contient bien les commits des Stories 6.1-6.3 (notamment `dataset_configs.py` avec `JAX_SUPERVISED_TRAINING_DATA_ROOT` — cf. Dev Notes ci-dessous sur les commits non poussés)
+- [x] Task 1: Lancer l'entraînement (AC: 1)
+  - [x] Exécuter `python main.py CIFAR10` (recommandé — dataset le plus léger, boucle rapide, mis en place en Epic 5 précisément pour ce type de test) ou `python main.py FIGHTERJET_CLASSIFICATION`
+  - [x] Laisser l'entraînement se dérouler jusqu'à `generate_reports` (fin de run) inclus — pas seulement le démarrage, pour couvrir tout chemin de lecture de fichier (checkpoints, rapports) qui pourrait dépendre de l'ancien nom
+- [x] Task 2: Vérifier l'absence d'échec silencieux (AC: 2)
+  - [x] Confirmer qu'aucune erreur de type chemin introuvable / variable d'environnement non définie n'est apparue
+  - [x] Si une erreur apparaît : c'est le comportement attendu par l'AC2 en cas d'oubli (échec explicite, pas de fallback silencieux) — identifier le point de lecture oublié, le corriger (probable candidat additionnel non couvert par le grep des Stories 6.2/6.3, ex. notebook Colab non versionné autre que celui déjà mis à jour), puis relancer Task 1
+  - [x] Comparer la sortie (courbes de loss, métriques finales, artefacts générés) à un run de référence pré-renommage si disponible, pour confirmer un comportement identique (pas seulement "ça ne plante pas")
+- [x] Task 3: Clôture (AC: 1, 2)
+  - [x] Reporter ici le résultat de l'exécution (dataset utilisé, succès/échec, éventuel correctif appliqué)
+  - [x] Si succès : cocher Task 0-2, passer cette story et l'Epic 6 à `done`
 
 ## Dev Notes
 
@@ -64,4 +64,12 @@ Claude Sonnet 5
 
 ### Completion Notes List
 
+- Entraînement `python main.py CIFAR10` relancé sur Colab, backend **GPU** (pas TPU) — log complet : `archive/training_cifar10_log_GPU_128x1.txt`.
+- Run complet jusqu'à `generate_reports` inclus : 24 epochs (early stopping), meilleur accuracy validation 0.8110, matrice de confusion générée avec succès. Aucune erreur de chemin, aucune variable d'environnement manquante, aucun fallback silencieux observé — AC1 et AC2 confirmés.
+- Config chargée correctement (`CIFAR10`, `sophisticated_cnn_32_plus`, 10 classes) sous le nouveau nom de projet, dépôt et variable d'environnement.
+- **Insight utilisateur à retenir pour les futurs tests de validation CIFAR10** : sur Colab, le backend GPU donne une performance légèrement meilleure que le TPU pour ce dataset (probablement lié à la gestion des flottants) — utiliser GPU par défaut pour ce type de test rapide à l'avenir.
+- Aucun correctif nécessaire (Task 2 "en cas d'erreur" non déclenchée) — la refactorisation Epic 6 est validée par exécution réelle, pas seulement par lecture de code.
+
 ### File List
+
+Aucun fichier de code modifié par cette story (validation par exécution uniquement).
