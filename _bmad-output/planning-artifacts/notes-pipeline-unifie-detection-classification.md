@@ -47,10 +47,30 @@ Une tête de détection par instances (grille/ancres façon YOLO, ou par point c
 - Selon Aymeric : la détection grid-based ne fonctionnait pas bien à l'époque, **principalement à cause d'un volume de données d'entraînement insuffisant**. UNet (segmentation) est venu après et a semblé "plus élégant" — hypothèse de Winston : probablement pas qu'une question de goût, la segmentation donne un signal dense pixel par pixel, plus économe en données que les approches à ancres classiques.
 - **Question ouverte, bloquante avant d'aller plus loin sur cette piste** : le volume de données d'entraînement pour la détection a-t-il significativement augmenté depuis cette tentative ? Si non, risque réel de reproduire le même échec avec un grid-based classique.
 
+## Volume de données — confirmé (2026-07-14)
+
+Dataset détection combiné (répertoire détection + répertoire classification fusionnés dans les .npz) : **113 708 images train + 28 965 val = 142 673 total**, largement au-dessus des ~20 000 d'origine qui avaient fait échouer le grid-based.
+
+Distribution par nombre de boxes/image (train) :
+- 1 box : 112 163 (**98.6%**)
+- 2+ boxes : 1 545 (1.36%) seulement
+
+**Conclusion clé** : le volume global n'est plus un facteur bloquant en général (confirmé par l'utilisateur : "résultats excellents sur images multi-avions" avec le pipeline actuel). Mais le cas précis "avions qui se chevauchent/se touchent" — celui que le grid-based était censé corriger — ne dispose que de quelques dizaines d'exemples d'entraînement réels, noyés dans 113k images à majorité écrasante 1-box. **Aucune architecture (UNet actuel ou grid-based) n'a de signal suffisant pour apprendre spécifiquement ce cas.** Le problème n'est donc plus "quelle architecture" mais "manque de données ciblées sur le chevauchement", commun aux deux options.
+
+## Recommandation de Winston (2026-07-14) — en attente de confirmation d'Aymeric
+
+Entre les deux options (tenter YOLO/grille 7×7×2 ancres vs avancer sur le pipeline unifié détection/classification) : **avancer sur le pipeline unifié maintenant**, en gardant l'UNet actuel tel quel (chevauchement documenté comme limite connue, pas bloquante — cas rare en pratique). Pas encore acté comme décision — recommandation soumise à l'utilisateur.
+
+Raisons :
+- Le pipeline unifié (crop+classification figée dans un graphe JAX) ne dépend pas de résoudre le chevauchement — valeur livrable immédiate, sans pari sur une donnée qui n'existe pas encore.
+- Tenter YOLO tel que scopé, sur les mêmes données (quelques dizaines d'exemples de chevauchement), risque de reproduire l'échec historique pour une raison différente (signal insuffisant sur le cas ciblé, pas le volume global).
+- Si YOLO/grille par instances est retenté plus tard, ça nécessitera une vraie stratégie de données dédiée au chevauchement (ex. augmentation synthétique par composition de crops existants — "copy-paste augmentation"), pas juste un changement d'architecture. Sous-projet à part entière, pas en parallèle improvisé du pipeline unifié.
+- Note technique pour plus tard : une grille 7×7 classique a elle-même une limite structurelle sur le chevauchement (une prédiction dominante par cellule/ancre) — une approche par point central (type CenterNet) ou une grille plus fine s'en sortirait mieux, indépendamment du problème de données.
+
 ## Décisions encore ouvertes
 
-1. **Volume de données détection aujourd'hui vs à l'époque du test grid-based** — bloquant pour juger la viabilité de revisiter cette piste.
-2. **Redessiner la tête de détection (grille/ancres/point central) vs garder l'extraction par contours en cv2** et ne fusionner que crop+classification (scope plus restreint, n'adresse pas le bug de fusion des boxes).
+1. ~~Volume de données détection aujourd'hui vs à l'époque du test grid-based~~ — **résolu**, voir section "Volume de données" ci-dessus.
+2. **Confirmation d'Aymeric sur la recommandation de Winston** (pipeline unifié d'abord, chevauchement reporté) — en attente.
 3. **Nature du "recadrage différentiable"** : opération déterministe (JAX pur, fonction des coordonnées de boîte déjà connues, portage de ce que fait cv2 aujourd'hui) vs sous-réseau appris (spatial transformer). Penchant actuel : déterministe, pour minimiser le risque et garantir la parité avec le comportement actuel.
 4. **Couche d'entrée full HD → 224×224** : resize fixe déterministe vs couche apprise. Penchant actuel : fixe, sauf motivation explicite (ex. mieux préserver les petits avions lointains — écart de downsampling ~8.6× en 1920×1080→224×224, à quantifier si c'est un vrai problème aujourd'hui).
 5. **Budget mémoire embarqué** : garder l'image full HD source en mémoire device jusqu'à l'étape de crop, à quel batch size cible, sur quel matériel (T4 Colab actuel vs autre) — pas encore quantifié.
@@ -58,7 +78,7 @@ Une tête de détection par instances (grille/ancres façon YOLO, ou par point c
 ## Risques identifiés
 
 - **Parité pixel pour le modèle de classification figé.** `FIGHTERJET_CLASSIFICATION` a été entraîné sur des crops produits par cv2 (interpolation, conversion niveaux de gris `cv2.cvtColor`, stretching non-uniforme). Un crop JAX qui ne reproduit pas exactement ce comportement numérique introduirait une régression silencieuse (distribution d'entrée légèrement décalée). **Vérifiable à coût nul avant tout réentraînement** — comparaison numérique crop JAX vs cv2 sur images réelles.
-- Reproduire l'échec historique du grid-based si le volume de données n'a pas changé (voir question ouverte ci-dessus).
+- Chevauchement d'avions : reporté, pas résolu — limite connue du pipeline unifié tant que ce sous-projet n'est pas traité séparément (voir section volume de données).
 
 ## Plan de validation proposé (pas encore lancé)
 
@@ -72,3 +92,4 @@ Dans le même esprit que les runs CIFAR10 de cette session — valider les incon
 ## Journal des échanges
 
 - **2026-07-14** — Aymeric propose l'idée initiale (recadrage différentiable JAX, classification figée). Winston identifie que le vrai point dur est `cv2.findContours`, pas le crop. Aymeric relie le problème de fusion des boxes (avions en formation serrée) à une reconsidération du grid-based, abandonné historiquement pour manque de données. Convergence identifiée entre les deux sujets. Document créé.
+- **2026-07-14 (suite)** — Aymeric fournit les chiffres réels de volume (confirmé option (a) : stats séparées détection/classification). Détection combinée = 142 673 images, mais seulement 1.36% ont 2+ boxes, et le vrai cas de chevauchement ne représente qu'une poignée d'exemples. Conclusion : le volume global n'est plus bloquant, mais le signal d'entraînement spécifique au chevauchement est quasi inexistant, quelle que soit l'architecture. Winston recommande d'avancer sur le pipeline unifié d'abord (valeur sûre, indépendante du chevauchement) et de reporter YOLO/grid-based tant qu'une vraie stratégie de données (augmentation synthétique par composition) n'est pas en place. Recommandation soumise, pas encore confirmée par Aymeric.
