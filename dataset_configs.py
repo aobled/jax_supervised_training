@@ -69,7 +69,7 @@ DATASET_CONFIGS = {
         "mean_std_path": f"{DATA_ROOT}/chunks/classification/dataset_classification_meanstd.npz",
         
         # === Modèle ===
-        "model_name": "sophisticated_cnn_128_plus",  # ✅ OPTIMAL: Version optimisée+ (4M params, 88% val)
+        "model_name": "sophisticated_cnn_128_plus",  # ✅ OPTIMAL: Version optimisée+ (4M params). "88% val" était obsolète/faux (corrigé 2026-07-14) - la vraie référence est ~94.5% val (archive/training_classification_log_bfloat16_256x2.txt: 0.9448, archive/training_classification_log.txt: 0.9458, deux configs proches concordantes)
         "loss_method": "focal_loss",
         "loss_params": {"gamma": 2.0},
 
