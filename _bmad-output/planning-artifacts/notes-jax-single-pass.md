@@ -135,7 +135,11 @@ flowchart TB
   - **Précision (2026-07-14)** : même avec la bonne formule mathématique, plusieurs conventions d'alignement pixel existent (bord vs centre du pixel — le classique problème "align corners" qui piège souvent les portages entre bibliothèques). `map_coordinates` doit être testé précisément contre `cv2.resize` sur ce point, pas juste "avoir l'air pareil".
 - ~~Décodage des boîtes reste cv2 (`findContours`)~~ — **superseded, voir "Décision : tête de détection par point central" ci-dessus.**
 - Chevauchement d'avions : reporté, pas résolu — la tête par point central est structurellement mieux adaptée mais reste limitée par le manque de données de chevauchement (voir section volume de données).
-- **Nouveau** : à confirmer que les annotations d'entraînement actuelles sont au niveau boîte (coordonnées x1/y1/x2/y2 par avion), pas seulement des masques de segmentation pixel par pixel — nécessaire pour générer les cibles heatmap+taille de la nouvelle tête sans recollecter de données.
+- ~~Annotations d'entraînement au niveau boîte~~ — **résolu, meilleur cas possible.** Vérifié dans `fighterjet_detection_dataset_tools.py:70,93,113-129` : les coordonnées de boîte (`data["annotation"]["bbox"]`, format x/y/w/h) sont la source de vérité brute. Le masque de segmentation actuel est *synthétisé* à partir des boîtes (dessin d'ellipses plutôt que de rectangles — mitigation partielle déjà en place "pour éviter la fusion des masques pour des objets proches", ligne 126, donc ce problème était déjà identifié avant cette discussion). Conséquence : générer les cibles heatmap+taille de la nouvelle tête ne nécessite ni masque intermédiaire ni `cv2.findContours`, même hors ligne — direct depuis `raw_boxes`.
+
+## Nouveau chantier identifié : `fighterjet_detection_dataset_tools_v2.py` (nom provisoire)
+
+Décision (2026-07-14, Aymeric) : nouvelle version du script de préparation de dataset détection, **dédiée à la nouvelle tête par point central, bien séparée du fichier actuel** (`fighterjet_detection_dataset_tools.py`, qui continue de fonctionner pour l'approche segmentation existante — aucune modification du chemin qui marche). Rôle : remplacer la boucle de synthèse de masque (ellipses) par une boucle de génération de cibles heatmap+taille, à partir des mêmes `raw_boxes` sources. Probablement plus simple que le fichier actuel, pas juste différent (pas de dessin de masque à produire).
 
 ## Plan de validation proposé (pas encore lancé)
 
