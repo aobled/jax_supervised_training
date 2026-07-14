@@ -95,7 +95,7 @@ development_status:
   6-2-renommage-de-la-variable-denvironnement-et-du-dossier-google-drive: done
   6-3-mise-a-jour-des-references-textuelles-code-documentation-artefacts-vivants: done
   6-4-validation-finale-par-execution-reelle: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
 action_items:
   - epic: "1-3"
@@ -133,4 +133,16 @@ action_items:
   - epic: "4-5"
     action: "Decider de la suite pour l'initiative generalisation du pipeline + renommage du projet (bmad-product-brief ou bmad-prd)"
     owner: "Aymeric"
+    status: done
+  - epic: "6"
+    action: "Tester le routage vers les agents specialises sur la phase d'execution (pas seulement planification) au prochain cycle - au moins une story via Amelia, ou un point de decision via Winston/Paige selon le sujet ; observer si ca change quelque chose plutot que d'imposer la regle partout"
+    owner: "Aymeric + Claude"
+    status: open
+  - epic: "6"
+    action: "Decider de la prochaine initiative : dette technique differee (deferred-work.md) ou nouveau chantier produit"
+    owner: "Aymeric"
+    status: open
+  - epic: "6"
+    action: "Envisager une revue de code legere meme sur les epics mecaniques multi-fichiers, pour rattraper les oublis ponctuels avant la verification finale (cf. titre docs/index.md manque en 6.3)"
+    owner: "futur cycle"
     status: open
