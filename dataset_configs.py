@@ -316,11 +316,8 @@ DATASET_CONFIGS = {
         "patience": 8,  # 5 -> 8 : confirmé utile en v2 - jamais déclenché sur 30 epochs, laisse la place pour le run à 45 epochs
         "warmup_steps": 100,  # 200 -> 100 : re-proportionné à steps/epoch (196 à batch=256, contre 391 à batch=128) pour garder ~0.5 epoch de warmup
         "decay_steps": 8820,  # 196 (steps/epoch à micro_batch_size=256) × 45 (epochs) - RECALCULÉ suite au changement de micro_batch_size (pas seulement epochs) : cf. bug Epic 5 Addendum 3 (LR figé par un decay_steps désynchronisé)
-        # PAS de label_smoothing ici : task_strategies.py:110-114 est un if/elif exclusif entre mixup et label_smoothing
-        # (mixup gagne toujours si mixup_alpha>0, label_smoothing devient mort) - combiner les deux est un bug dormant
-        # déjà présent sur FIGHTERJET_CLASSIFICATION (dataset_configs.py:103-104, les deux sont non-nuls là-bas aussi,
-        # donc son label_smoothing=0.15 n'a probablement jamais rien fait non plus). Un seul des deux actif ici.
-        "mixup_alpha": 0.05,  # valeur déjà validée sur FIGHTERJET_CLASSIFICATION ("meilleur compromis trouvé") - jamais testé sur CIFAR10
+        "label_smoothing": 0.15,  # 2026-07-14 : réactivé après correctif task_strategies.py:110-118 (mixup+smoothing combinables) - jamais réellement testé avant ce fix, ni ici ni sur FIGHTERJET_CLASSIFICATION
+        "mixup_alpha": 0.05,  # valeur déjà validée sur FIGHTERJET_CLASSIFICATION ("meilleur compromis trouvé") - mixup seul déjà testé sur CIFAR10 (v3, val 0.8570) ; ce run teste l'ajout de label_smoothing par-dessus
 
         # === Évaluation ===
         "metric_method": "accuracy",

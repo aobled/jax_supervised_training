@@ -110,10 +110,14 @@ class ClassificationStrategy(TaskStrategy):
         if self.mixup_alpha > 0 and rng is not None:
              images, targets = mixup_batch(images, targets, self.mixup_alpha, self.num_classes, rng)
              use_onehot = True
+             if self.label_smoothing > 0:
+                 # Composé sur les labels one-hot déjà mixés par mixup_batch (targets somme à 1 par ligne,
+                 # la formule de smoothing standard s'applique identiquement à des labels durs ou mixés).
+                 targets = targets * (1 - self.label_smoothing) + self.label_smoothing / self.num_classes
         elif self.label_smoothing > 0:
              targets = smooth_labels(targets, self.num_classes, self.label_smoothing)
              use_onehot = True
-             
+
         return images, targets, use_onehot
         
     def compute_loss(self, outputs, targets, use_onehot_labels=False, **kwargs):
