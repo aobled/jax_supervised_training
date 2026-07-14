@@ -274,7 +274,7 @@ DATASET_CONFIGS = {
             "flip_v": False,
             "rotation_factor": 0.0,
             "zoom_factor": 0.0,
-            "translation_factor": 0.0,
+            "translation_factor": 0.1,  # random-crop-like shift (~3px/32px) ; annule l'Addendum 2 Epic 5 ("pas de changement nécessaire") - le surapprentissage persiste malgré le fix dropout de l'Addendum 3 (meilleur epoch 19 : train 93.45% vs val 81.10%, archive/training_cifar10_log_GPU_128x1.txt)
             "brightness_delta": 0.0,
             "contrast_factor": 0.0
         },
@@ -310,7 +310,7 @@ DATASET_CONFIGS = {
         "optimizer": "adamw",
         "lr_schedule": "cosine",
         "epochs": 30,          # 10 coupait le decay LR en plein milieu (391 steps/epoch) ; 30 laisse une vraie fenêtre d'apprentissage
-        "patience": 5,
+        "patience": 8,  # 5 -> 8 : hypothèse (non confirmée, val jamais augmentée) que la régularisation ralentit la convergence val ; sans risque sur le modèle exporté (best-checkpoint indépendant de patience, trainer.py:467-472), coûte au pire quelques epochs de calcul en plus
         "warmup_steps": 200,
         "decay_steps": 11700,  # ≈ steps/epoch (391) × epochs (30) : couvre tout l'entraînement, plus de LR figé à 1e-6 en plein milieu
 
