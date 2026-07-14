@@ -293,31 +293,36 @@ DATASET_CONFIGS = {
 
         # === Hyperparamètres GPU ===
         "gpu": {
-            "micro_batch_size": 256,  # 128 -> 256 : marge VRAM T4 suggérée par FIGHTERJET_CLASSIFICATION (modèle 12x plus gros, images 128x128, tourne déjà à effectif 512) - non profilé directement, à surveiller (OOM)
-            "accum_steps": 1,  # inchangé volontairement : un seul levier de batch effectif à la fois (micro_batch_size), pas cumulé avec accum_steps
-            "learning_rate": 1.4e-3,  # 1e-3 -> 1.4e-3 : mise à l'échelle sqrt (batch x2) plutôt que linéaire, plus prudente avec AdamW
+            "micro_batch_size": 128,  # RUN A (isolation) : revenu à 128 (v2) - batch/LR volontairement PAS testés ici, cf. échelle d'isolation ci-dessous
+            "accum_steps": 1,
+            "learning_rate": 1e-3,  # RUN A : revenu à 1e-3 (v2), pas de scaling tant que le batch n'est pas remonté
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
         },
 
         # === Hyperparamètres TPU ===
         "tpu": {
-            "micro_batch_size": 256,  # mirroré depuis gpu, non testé/profilé sur TPU spécifiquement
+            "micro_batch_size": 128,
             "accum_steps": 1,
-            "learning_rate": 1.4e-3,  # idem
+            "learning_rate": 1e-3,
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
         },
 
         # === Entraînement ===
+        # RUN A d'une échelle d'isolation à 2 runs (2026-07-14), pour attribuer proprement le gain v2->v3 (0.8416->0.8570) :
+        #   v2 (référence, déjà fait)        : batch=128, lr=1e-3, epochs=30, decay_steps=11700, sans mixup -> 0.8416
+        #   RUN A - epochs seul (celui-ci)   : batch=128, lr=1e-3, epochs=45, decay_steps=17595, sans mixup -> isole l'effet "plus d'epochs"
+        #   RUN B - + batch/LR (à faire ensuite) : batch=256, lr=1.4e-3, epochs=45, decay_steps=8820, sans mixup -> isole l'effet batch/LR au-delà de A
+        #   v3 (référence, déjà fait)        : = RUN B + mixup_alpha=0.05 -> 0.8570
+        # Un seul paramètre change entre deux lignes consécutives. mixup/label_smoothing restent désactivés dans A et B
+        # (déjà isolés séparément : v2->v3 pour mixup, v3->v4 pour label_smoothing+mixup, v4=0.8534 < v3=0.8570).
         "optimizer": "adamw",
         "lr_schedule": "cosine",
-        "epochs": 45,          # 30 -> 45 : run v2 (augmentation+patience) n'a jamais early-stoppé et progressait encore à l'epoch 30 (val 0.8416, meilleur epoch = dernier) - plafond pas encore atteint
-        "patience": 8,  # 5 -> 8 : confirmé utile en v2 - jamais déclenché sur 30 epochs, laisse la place pour le run à 45 epochs
-        "warmup_steps": 100,  # 200 -> 100 : re-proportionné à steps/epoch (196 à batch=256, contre 391 à batch=128) pour garder ~0.5 epoch de warmup
-        "decay_steps": 8820,  # 196 (steps/epoch à micro_batch_size=256) × 45 (epochs) - RECALCULÉ suite au changement de micro_batch_size (pas seulement epochs) : cf. bug Epic 5 Addendum 3 (LR figé par un decay_steps désynchronisé)
-        "label_smoothing": 0.15,  # 2026-07-14 : réactivé après correctif task_strategies.py:110-118 (mixup+smoothing combinables) - jamais réellement testé avant ce fix, ni ici ni sur FIGHTERJET_CLASSIFICATION
-        "mixup_alpha": 0.05,  # valeur déjà validée sur FIGHTERJET_CLASSIFICATION ("meilleur compromis trouvé") - mixup seul déjà testé sur CIFAR10 (v3, val 0.8570) ; ce run teste l'ajout de label_smoothing par-dessus
+        "epochs": 45,          # inchangé par rapport à v3/v4 : c'est justement le paramètre qu'on NE fait PAS varier entre A et B
+        "patience": 8,
+        "warmup_steps": 200,  # RUN A : revenu à 200 (ratio d'origine pour steps/epoch=391 à batch=128)
+        "decay_steps": 17595,  # RUN A : 391 (steps/epoch à batch=128) × 45 (epochs) - PAS 8820, qui était calculé pour batch=256
 
         # === Évaluation ===
         "metric_method": "accuracy",
