@@ -445,7 +445,9 @@ class Trainer:
                 model_name=self.model_name,
                 num_params=count_parameters(self.state.params)
             )
-            visualizer.plot_training_curves(epoch_start=0, save_path=f"{self.model_name}.png")
+            # Dérivé de dataset_name (pas de model_name) : deux configs peuvent réutiliser la même architecture
+            # (ex. CIFAR10 et FIGHTERJET_CLASSIFICATION partagent sophisticated_cnn_128_plus) sans s'écraser.
+            visualizer.plot_training_curves(epoch_start=0, save_path=f"{self.config.get('dataset_name', 'unknown').lower()}.png")
             
 
             

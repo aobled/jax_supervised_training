@@ -95,13 +95,10 @@ class ClassificationStrategy(TaskStrategy):
         return "max"
         
     def _get_export_path(self, config) -> str:
-        pkl_path = config.get("checkpoint_path", "best_model.pkl")
-        if "checkpoints" in pkl_path and not pkl_path.endswith('.pkl'):
-            pkl_path = "best_model_classification.pkl"
-        return pkl_path
+        return config.get("checkpoint_path") or f"best_model_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def get_training_state_path(self, config) -> str:
-        return "best_model_training_state_classification.pkl"
+        return config.get("training_state_path") or f"best_model_training_state_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def preprocess_batch(self, images, targets, is_training, rng=None):
         targets = jnp.array(targets, dtype=jnp.int32)
@@ -148,10 +145,8 @@ class ClassificationStrategy(TaskStrategy):
         reporter = ModelReporter(class_names=config["class_names"])
         try:
             # Déterminer le bon fichier PKL engendré par le Trainer
-            pkl_path = config.get("checkpoint_path", "best_model.pkl")
-            if "checkpoints" in pkl_path and not pkl_path.endswith('.pkl'):
-                pkl_path = "best_model_classification.pkl"
-                
+            pkl_path = self._get_export_path(config)
+
             reporter.confusion_matrix_from_pkl(
                 dataset=val_ds,
                 pkl_path=pkl_path,
@@ -182,10 +177,10 @@ class DetectionStrategy(TaskStrategy):
         return "max"
         
     def _get_export_path(self, config) -> str:
-        return "best_model_detection.pkl"
+        return config.get("checkpoint_path") or f"best_model_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def get_training_state_path(self, config) -> str:
-        return "best_model_training_state_detection.pkl"
+        return config.get("training_state_path") or f"best_model_training_state_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def preprocess_batch(self, images, targets, is_training, rng=None):
         targets = jnp.array(targets, dtype=jnp.float32)
@@ -288,10 +283,10 @@ class KeplerStrategy(TaskStrategy):
         return "max"
         
     def _get_export_path(self, config) -> str:
-        return config.get("checkpoint_path", "best_model_kepler.pkl")
+        return config.get("checkpoint_path") or f"best_model_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def get_training_state_path(self, config) -> str:
-        return "best_model_training_state_kepler.pkl"
+        return config.get("training_state_path") or f"best_model_training_state_{config.get('dataset_name', 'unknown').lower()}.pkl"
 
     def preprocess_batch(self, images, targets, is_training, rng=None):
         # Pour Kepler, on ne fait pas d'augmentation temporelle complexe pour le moment.

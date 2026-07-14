@@ -14,7 +14,7 @@ sources:
   - docs/dead-code-and-duplication-audit.md
   - docs/architecture.md
   - docs/source-tree-analysis.md
-companions: []
+companions: [BENCHMARK-TPU-PERFORMANCE.md]
 ---
 
 # Architecture Spine — Refactor JAX_Detection — module d'inférence mutualisé
@@ -170,6 +170,7 @@ Items exprimés par l'utilisateur lors de la rétrospective de fin de cycle (Epi
 - Mélange français/anglais dans le code et les commentaires — anglicisation à faire.
 - Absence de convention de nommage cohérente (snake_case vs camelCase, nommage des fichiers `.py`) — audit de style à mener.
 - Réorganisation des `.py` en répertoires logiques (ex. `lib/`, `tools/`) plutôt que la structure plate actuelle.
+- **Éclatement de `model_library.py` et `dataset_configs.py` en un fichier par modèle / par config** (idée exprimée par l'utilisateur le 2026-07-14, en marge de l'analyse comparative `sophisticated_cnn_32_plus` vs `depthwise_conv09`), spécialisation de l'item de réorganisation ci-dessus. Pattern établi dans l'écosystème ML (pas une invention ad hoc) : "registry pattern" côté modèles (`timm.models.registry`, `fvcore.Registry` de Detectron2, registres OpenMMLab) et "config-per-experiment" côté configs (MMDetection `configs/`, Hydra). Deux points de conception non-triviaux à traiter le moment venu, pas juste un découpage mécanique : (1) `SeparableConv`/`SEBlock`/`SpatialAttention` sont des briques partagées par plusieurs architectures — à extraire dans un `layers.py`/`blocks.py` commun pour éviter la duplication ; (2) `DATASET_CONFIGS`/`MODELS` sont aujourd'hui des dicts uniques construits par un seul fichier — un éclatement en fichiers séparés demande un mécanisme d'agrégation/auto-découverte (import du dossier au chargement), sinon on retombe sur une liste centrale à maintenir manuellement. Timing jugé prématuré à ce stade (`model_library.py` : 5 modèles/~470 lignes, `dataset_configs.py` : 4 configs/~330 lignes) — probablement pertinent une fois l'initiative "Généralisation complète du pipeline" (ci-dessus) en cours, quand plusieurs nouveaux datasets de test (cat-vs-dog notamment) viendront grossir `dataset_configs.py`.
 - Code inutile résiduel au-delà de ce refactor (ex. tout ce qui reste lié à Letterbox) — nécessite un audit fichier par fichier, pas une suppression mécanique par mot-clé.
 - Warnings à corriger sur Colab : `WARNING: All log messages before absl::InitializeLog() is called are written to STDERR`, `Could not find cuda drivers on your machine`, `failed call to cuInit: INTERNAL: CUDA error ... UNKNOWN ERROR (303)`.
 
@@ -180,5 +181,11 @@ Items exprimés par l'utilisateur lors de la rétrospective de fin de cycle (Epi
 
 **Performance**
 
-- Optimisation de la consommation GPU/TPU sur Colab (observé : 24.9/47.0 Go RAM, 31.2/225.3 Go disque) — étudier les leviers disponibles (taille de batch notamment) pour accélérer l'entraînement sans dégrader les performances actuelles ; noter que l'augmentation de la taille de batch n'est pas systématiquement bénéfique.
+- Optimisation de la consommation GPU/TPU sur Colab — observations distinctes par tâche, un réglage différent pourrait être nécessaire entre détection et classification :
+  - `FIGHTERJET_DETECTION` : 24.9/47.0 Go RAM, 31.2/225.3 Go disque.
+  - `FIGHTERJET_CLASSIFICATION` : 12.3/47.0 Go RAM, 23.9/225.3 Go disque (run du 2026-07-12, 40 epochs, accuracy validation 0.9458 — `training_classification_log.txt`).
+  - Marge RAM système inoccupée confirmée sur les deux tâches, mais ne renseigne pas directement sur la mémoire HBM du cœur TPU (contrainte différente, à ne pas confondre).
+  - Piste écartée : augmenter la taille de batch effective directement — le "sweet spot" (512 pour la classification) est déjà tuné intentionnellement, ne pas y toucher.
+  - **Expérimentation en cours (2026-07-12, avis Winston/`bmad-agent-architect` obtenu avant de lancer)** : test combiné (1) `bfloat16` au lieu de `float16` sur la branche TPU (`main.py`) — format natif TPU, plus stable numériquement ; (2) ratio `micro_batch_size`/`accum_steps` passé de 128×4 à 256×2 pour `FIGHTERJET_CLASSIFICATION` (`dataset_configs.py`), batch effectif inchangé (512). Les deux changements sont combinés dans le même run pour limiter le coût en temps TPU — si problème, retester `bfloat16` seul (128×4) pour isoler la cause. Piste `.cache()` sur le pipeline `tf.data` volontairement **reportée** : l'augmentation aléatoire (flip/rotation/zoom/etc.) est appliquée dans la fonction passée à `.map()` — un cache mal placé (après l'augmentation plutôt qu'avant) figerait les mêmes images augmentées à chaque epoch et pourrait dégrader l'accuracy au lieu de l'améliorer.
+  - Suivi détaillé run par run : voir le companion `BENCHMARK-TPU-PERFORMANCE.md`.
 - Optimisation des modèles : viser une empreinte plus légère à performance égale.

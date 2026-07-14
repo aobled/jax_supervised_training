@@ -518,3 +518,78 @@ so that ce code historique reste traçable et récupérable sans polluer le pipe
 **Given** `ultralytics` (dépendance PyTorch de ces scripts) ne devient plus nécessaire par défaut une fois ces fichiers archivés
 **When** `requirements.txt` (Story 4.3) est finalisé
 **Then** `ultralytics` n'y figure ni en dépendance par défaut ni en note "à la demande" pour le pipeline principal — uniquement documentée dans `archive/README.md` pour la réactivation de ce cas d'usage spécifique
+
+## Epic 5: Dataset CIFAR-10 pour boucle de test rapide
+
+Le pipeline dispose d'un second jeu de données de classification, standard et léger (CIFAR-10, ~180 Mo), permettant d'itérer et de valider des changements de pipeline en quelques minutes sans dépendre du dataset avion complet (~10 Go) ni de Colab/TPU. Sert aussi de première preuve concrète de généricité du pipeline sur un cas image standard (`JAX_KEPLER` prouvait déjà la généricité côté 1D, pas côté image). Investigation préalable (Winston, `bmad-agent-architect`) : `data_management.py`, `loss_functions.py`, `reporting.py` et `model_library.py` (Global Average Pooling, pas de dimension spatiale figée) sont déjà génériques. Un vrai point de couplage a été découvert en creusant plus loin, non détecté à l'investigation initiale : `task_strategies.py` nomme les fichiers `.pkl` (export + training-state resumable) par `task_type` codé en dur, pas par config — sans conséquence tant qu'il n'existait qu'une seule config par `task_type`, mais CIFAR10 introduit la 2ᵉ config `classification` et ferait collision avec `FIGHTERJET_CLASSIFICATION` sur le même fichier de training-state. Traité comme un gate (Story 5.0) avant toute génération de données CIFAR-10.
+**FRs covered:** aucune (hors scope FR1-FR10 du PRD refactor initial ; nouvelle capacité identifiée post-cycle, cf. `ARCHITECTURE-SPINE.md` § Deferred "Généralisation complète du pipeline")
+
+### Story 5.0: Nommage des checkpoints dérivé de la config (gate)
+
+As a mainteneur du pipeline,
+I want que le nom des fichiers `.pkl` (export final et training-state resumable) soit dérivé du nom de la config utilisée plutôt que du `task_type`,
+So that deux configs partageant le même `task_type` (ex. `FIGHTERJET_CLASSIFICATION` et `CIFAR10`, toutes deux `classification`) n'écrasent/ne lisent pas le même fichier de checkpoint.
+
+**Acceptance Criteria:**
+
+**Given** `dataset_configs.py::get_dataset_config(dataset_name)` retourne aujourd'hui un dict sans le nom de la config qu'il contient
+**When** la fonction est modifiée
+**Then** elle injecte `config["dataset_name"] = dataset_name` dans le dict retourné, avant validation
+
+**Given** les 3 implémentations actuelles de `_get_export_path`/`get_training_state_path` (`ClassificationStrategy`, `DetectionStrategy`, `KeplerStrategy` dans `task_strategies.py`) — dont certaines ignorent totalement `config["checkpoint_path"]` (`DetectionStrategy._get_export_path`) et dont aucune ne lit un équivalent pour le training-state
+**When** elles sont uniformisées
+**Then** chacune retourne `config.get("checkpoint_path")` (export) ou `config.get("training_state_path")` (training-state) si fourni explicitement, sinon un nom par défaut dérivé de `best_model_{config["dataset_name"].lower()}.pkl` / `best_model_training_state_{config["dataset_name"].lower()}.pkl`
+
+**Given** les 3 configs existantes (`FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`) et les fichiers `.pkl` déjà versionnés/produits sous leurs noms actuels (`best_model.pkl`, `best_model_detection.pkl`, `best_model_training_state_classification.pkl`)
+**When** la Story 5.0 est complétée
+**Then** `checkpoint_path` reste explicite et inchangé pour les 3 configs (déjà le cas) **et** un `training_state_path` explicite est ajouté à chacune des 3, verrouillant le nom actuellement codé en dur (`best_model_training_state_classification.pkl`, `best_model_training_state_detection.pkl`, `best_model_training_state_kepler.pkl`) — aucun renommage silencieux d'un fichier déjà en usage
+
+**Addendum (découvert pendant la validation locale, Story 5.2)** : le run CIFAR10 a silencieusement écrasé `sophisticated_cnn_128_plus.png` (courbes d'entraînement fighterjet, committé dans `2628ef6`) — même classe de bug, non détectée par le grep initial car dans `trainer.py` (`TrainingVisualizer`) et non dans `task_strategies.py`. `trainer.py:448` sauvegardait sous `f"{self.model_name}.png"` (nom d'**architecture**, partagée par CIFAR10 et FIGHTERJET_CLASSIFICATION), pas sous un nom dérivé de la config. Corrigé sur le même principe : `f"{self.config['dataset_name'].lower()}.png"`. Contrairement aux `.pkl`, aucune préservation de nom n'a été faite pour les configs existantes (fichier régénéré à chaque epoch, pas un artefact critique/versionné à préserver) — `sophisticated_cnn_128_plus.png` reste tel que restauré depuis `2628ef6` mais deviendra orphelin (un futur training `FIGHTERJET_CLASSIFICATION` produira désormais `fighterjet_classification.png`). Fichier CIFAR10 initialement écrasé restauré depuis git puis sa version CIFAR10 sauvegardée séparément (scratchpad) avant correctif.
+
+**Addendum 2 (post-validation, retour utilisateur)** : après le premier run local réussi (`sophisticated_cnn_128_plus`, ~79,5% accuracy val en 10 epochs — **correctif** : une version antérieure de cet addendum citait par erreur 0.9448, qui est en réalité le résultat `FIGHTERJET_CLASSIFICATION` bfloat16/256×2 de `BENCHMARK-TPU-PERFORMANCE.md`, sans rapport avec CIFAR10), l'utilisateur a fait remarquer que réutiliser `sophisticated_cnn_128_plus` tel quel pour du 32×32 était surdimensionné (3 max-pools 32→16→8→4, pic à 512 canaux — taillé pour des silhouettes d'avion 128×128, pas pour CIFAR-10). Une nouvelle architecture `sophisticated_cnn_32_plus` a été ajoutée à `model_library.py` (même famille de blocs : SeparableConv, résiduelles, SE, Spatial Attention, tête GAP), avec 2 max-pools au lieu de 3 (32→16→8, pas de réduction jusqu'à 4×4) et des canaux à peu près divisés par 2 à chaque étage (pic à 256 au lieu de 512) — **318 691 paramètres vs 1 257 041** (~4× moins), vérifié par instanciation directe (forward pass train/eval, shapes de sortie correctes). `CIFAR10.model_name` mis à jour vers `sophisticated_cnn_32_plus`. Les paramètres d'augmentation de données de `CIFAR10` étaient déjà minimaux (seul `flip_h=True` actif, tout le reste à 0.0) — pas de changement nécessaire sur ce point, confirmé à l'utilisateur plutôt que modifié à l'aveugle.
+
+**Addendum 3 (runs Colab successifs `sophisticated_cnn_32_plus`, tuning epochs/LR/dropout)** : premier run Colab (`archive/training_cifar10_log_bfloat_128x1.txt` — malgré son nom, le log confirme `float16`, pas bfloat16 ; `epochs=10`, `decay_steps=2000` hérité du réglage précédent) a plafonné à **73,30%** (val accuracy), stagnation nette dès l'epoch 5 (val loss figé 0.7601-0.7611 de l'epoch 6 à 10). Diagnostiqué comme un bug de LR schedule, pas une limite de capacité : avec 391 steps/epoch, `decay_steps=2000` fait tomber le LR à `end_value=1e-6` au step ~2000 (epoch ~5,1/10), gelant l'apprentissage pour le reste du run. Corrigé : `epochs` 10→30, `patience` 3→5, `decay_steps` 2000→11700 (≈ steps/epoch × epochs, couvre tout l'entraînement). Deuxième run (`archive/training_cifar10_log_float16_128x1.txt`) : **79,49%** (meilleur, epoch 10), mais overfitting net ensuite — train accuracy 86,97%→93,22% (epoch 10→15) pendant que le val loss remonte 0.6325→0.7442 au lieu de continuer à baisser ; early stopping déclenché correctement à l'epoch 15 (patience=5 depuis le meilleur). Diagnostiqué comme absence totale de régularisation (`dropout_rate=0.0` dans les deux runs ci-dessus), pas comme un manque de capacité (le train accuracy grimpant librement au-delà de 93% indique une capacité largement suffisante). Corrigé : `dropout_rate` 0.0→0.3 (`gpu` et `tpu`), aligné sur la valeur déjà utilisée par `JAX_KEPLER`. Résultat de ce 3ᵉ run non encore capturé au moment de la revue de code — à mettre à jour si un futur cycle reprend ce sujet.
+
+### Story 5.1: Génération des chunks CIFAR-10 au format .npz
+
+As a mainteneur du pipeline,
+I want un script dédié (`cifar10_classification_dataset_tools.py`) qui télécharge le CIFAR-10 officiel (pickle, cs.toronto.edu) et génère les chunks `.npz` (`image`/`label`) et le fichier `meanstd.npz` dans le format exact attendu par `ChunkManager`,
+So that le dataset soit consommable par le pipeline existant sans aucune modification de `data_management.py`.
+
+**Acceptance Criteria:**
+
+**Given** CIFAR-10 n'est disponible ni via un dossier d'images ni via un chargeur déjà présent dans le repo
+**When** le script `cifar10_classification_dataset_tools.py` s'exécute
+**Then** il télécharge `cifar-10-python.tar.gz` depuis `https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz` (source officielle) s'il n'est pas déjà présent localement, l'extrait, et parse les 5 batches `data_batch_1..5` (train, 50 000 images) et `test_batch` (val, 10 000 images) via `pickle`
+**And** aucune fonction de `fighterjet_classification_dataset_tools.py` n'est réutilisée pour le chargement/décodage (conçues pour un dossier `.png`/`.jpg`, format non applicable ici)
+
+**Given** le layout natif des batches CIFAR-10 (chaque image stockée en 3072 octets : 1024 rouge, 1024 vert, 1024 bleu, aplati ligne par ligne — pas HWC)
+**When** les images sont décodées
+**Then** chaque ligne de 3072 octets est reshape en `(3, 32, 32)` puis transposée en `(32, 32, 3)` (HWC) avant normalisation `/255.0` en float32
+
+**Given** le contrat `.npz` attendu par `ChunkManager` (`data_management.py`)
+**When** les chunks sont écrits
+**Then** le split `train` produit `{output_prefix}_train_chunk0.npz` (clés `image` float32 `(N, 32, 32, 3)`, `label` int32 `(N,)`) et le split `test` produit `{output_prefix}_val_chunk0.npz` selon le même format
+
+**Given** `ChunkManager` exige un fichier `{output_prefix}_meanstd.npz` (clés `mean`/`std`) au chargement
+**When** le script termine la génération
+**Then** ce fichier est calculé sur le split `train` et sauvegardé au bon emplacement, sans quoi `get_datasets()` lèverait un `FileNotFoundError`
+
+### Story 5.2: Entrée CIFAR10 dans dataset_configs.py et validation locale
+
+As a mainteneur du pipeline,
+I want une nouvelle entrée `CIFAR10` dans `dataset_configs.py` réutilisant `ClassificationStrategy` sans modification,
+So that j'obtienne une boucle d'entraînement/test complète, exécutable localement en quelques minutes, pour valider rapidement tout changement de pipeline.
+
+**Acceptance Criteria:**
+
+**Given** les Stories 5.0 (nommage checkpoints) et 5.1 (chunks + `meanstd.npz`) complétées
+**When** l'entrée `CIFAR10` est ajoutée à `dataset_configs.py`
+**Then** elle définit `num_classes=10`, les 10 `class_names` standards CIFAR-10, `image_size=(32, 32)`, `grayscale=False`, `model_name="sophisticated_cnn_128_plus"` (réutilisé tel quel — architecture à Global Average Pooling, aucune modification requise) ⚠️ **superseded par l'Addendum 2 ci-dessous** : `model_name` a été changé pour `sophisticated_cnn_32_plus` (nouvelle architecture, `model_library.py` modifié) suite au retour utilisateur post-validation — cette puce d'AC ne reflète plus le code livré, `loss_method="cross_entropy"` (dataset équilibré par construction, contrairement à `FIGHTERJET_CLASSIFICATION` qui utilise `focal_loss`)
+**And** aucun `checkpoint_path`/`training_state_path` explicite n'est requis — le nommage dérivé de `dataset_name` (Story 5.0) s'applique par défaut (`best_model_cifar10.pkl`, `best_model_training_state_cifar10.pkl`)
+**And** aucune modification n'est faite à `model_library.py`, `loss_functions.py`, `reporting.py` ou `data_management.py`
+
+**Given** l'objectif explicite d'une boucle de test locale rapide (contrairement à `FIGHTERJET_CLASSIFICATION`/`FIGHTERJET_DETECTION` dont l'entraînement complet doit rester réservé à Colab/TPU pour éviter un crash mémoire local)
+**When** `main.py CIFAR10` est exécuté localement (CPU/GPU) sur un nombre réduit d'epochs
+**Then** l'entraînement se déroule sans erreur jusqu'à son terme, confirmant par l'exécution (pas seulement par lecture de code) la généricité du pipeline sur un second cas d'usage image
+**And** les fichiers `.pkl` produits (`best_model_cifar10.pkl`, `best_model_training_state_cifar10.pkl`) sont distincts de ceux de `FIGHTERJET_CLASSIFICATION`, confirmant par l'exécution que la Story 5.0 élimine bien la collision

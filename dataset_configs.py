@@ -113,6 +113,7 @@ DATASET_CONFIGS = {
         
         # === Sauvegarde ===
         "checkpoint_path": "best_model.pkl",
+        "training_state_path": "best_model_training_state_classification.pkl",
         "confusion_matrix_path": "confusion_matrix.png",
     },
     
@@ -187,6 +188,7 @@ DATASET_CONFIGS = {
         
         # === Sauvegarde ===
         "checkpoint_path": "best_model_detection.pkl",
+        "training_state_path": "best_model_training_state_detection.pkl",
         "save_dir": "./checkpoints_detection",
     },
     
@@ -255,7 +257,72 @@ DATASET_CONFIGS = {
         
         # === Sauvegarde ===
         "checkpoint_path": "best_model_kepler.pkl",
+        "training_state_path": "best_model_training_state_kepler.pkl",
         "confusion_matrix_path": "confusion_matrix_kepler.png",
+    },
+
+    "CIFAR10": {
+        # === CONFIG BOUCLE DE TEST RAPIDE (pipeline, pas optimisation d'accuracy) ===
+        # === Données ===
+        "num_classes": 10,
+        "class_names": ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck'],
+        "output_prefix": f"{DATA_ROOT}/chunks/cifar10/dataset_cifar10",
+        "image_size": (32, 32),
+        "grayscale": False,
+        "augmentation_params": {
+            "flip_h": True,
+            "flip_v": False,
+            "rotation_factor": 0.0,
+            "zoom_factor": 0.0,
+            "translation_factor": 0.0,
+            "brightness_delta": 0.0,
+            "contrast_factor": 0.0
+        },
+
+        "mean": None,
+        "std": None,
+        "mean_std_path": f"{DATA_ROOT}/chunks/cifar10/dataset_cifar10_meanstd.npz",
+
+        # === Modèle ===
+        "model_name": "sophisticated_cnn_32_plus",  # Variante réduite pour 32×32 (128_plus était surdimensionné/trop de pooling pour cette taille)
+        "loss_method": "cross_entropy",  # Dataset équilibré par construction (contrairement à FIGHTERJET_CLASSIFICATION)
+        "loss_params": {},
+
+        # === Hyperparamètres GPU ===
+        "gpu": {
+            "micro_batch_size": 128,
+            "accum_steps": 1,
+            "learning_rate": 1e-3,
+            "weight_decay": 5e-5,
+            "dropout_rate": 0.3,
+        },
+
+        # === Hyperparamètres TPU ===
+        "tpu": {
+            "micro_batch_size": 128,
+            "accum_steps": 1,
+            "learning_rate": 1e-3,
+            "weight_decay": 5e-5,
+            "dropout_rate": 0.3,
+        },
+
+        # === Entraînement ===
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
+        "epochs": 30,          # 10 coupait le decay LR en plein milieu (391 steps/epoch) ; 30 laisse une vraie fenêtre d'apprentissage
+        "patience": 5,
+        "warmup_steps": 200,
+        "decay_steps": 11700,  # ≈ steps/epoch (391) × epochs (30) : couvre tout l'entraînement, plus de LR figé à 1e-6 en plein milieu
+
+        # === Évaluation ===
+        "metric_method": "accuracy",
+        "report_method": "confusion_matrix",
+        "eval_batch_size": 128,
+        "eval_use_subset": False,  # 10 000 images val, taille déjà raisonnable
+
+        # === Sauvegarde ===
+        # Pas de checkpoint_path/training_state_path explicite : nommage dérivé de dataset_name (Story 5.0)
+        "confusion_matrix_path": "confusion_matrix_cifar10.png",
     }
 }
 
@@ -279,7 +346,8 @@ def get_dataset_config(dataset_name):
         raise ValueError(f"Dataset '{dataset_name}' inconnu. Datasets disponibles: {available}")
     
     config = DATASET_CONFIGS[dataset_name]
-    
+    config["dataset_name"] = dataset_name
+
     # Par défaut, classification si non spécifié
     if "task_type" not in config:
         config["task_type"] = "classification"

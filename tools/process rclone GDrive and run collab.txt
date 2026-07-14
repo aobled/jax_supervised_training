@@ -3,12 +3,12 @@ rclone sync /home/aobled/Desktop/Development/JAX_Detection gdrive:JAX_Detection 
     --exclude=".git/" \
     --exclude="__pycache__/" \
     --exclude="data/" \
-    --exclude="sauv_pkl_ok/
     --exclude="_bmad/
+    --exclude="archive/
     --exclude="_bmad-output/
     --exclude=".claude/"
 
-rclone sync /home/aobled/Documents/data/chunks/classification gdrive:JAX_Detection/data/chunks/classification -P
+rclone sync /home/aobled/Documents/data/chunks/cifar10 gdrive:JAX_Detection/data/chunks/cifar10 -P
 
 
 from google.colab import drive
