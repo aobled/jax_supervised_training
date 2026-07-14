@@ -290,18 +290,18 @@ DATASET_CONFIGS = {
 
         # === Hyperparamètres GPU ===
         "gpu": {
-            "micro_batch_size": 128,
-            "accum_steps": 1,
-            "learning_rate": 1e-3,
+            "micro_batch_size": 256,  # 128 -> 256 : marge VRAM T4 suggérée par FIGHTERJET_CLASSIFICATION (modèle 12x plus gros, images 128x128, tourne déjà à effectif 512) - non profilé directement, à surveiller (OOM)
+            "accum_steps": 1,  # inchangé volontairement : un seul levier de batch effectif à la fois (micro_batch_size), pas cumulé avec accum_steps
+            "learning_rate": 1.4e-3,  # 1e-3 -> 1.4e-3 : mise à l'échelle sqrt (batch x2) plutôt que linéaire, plus prudente avec AdamW
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
         },
 
         # === Hyperparamètres TPU ===
         "tpu": {
-            "micro_batch_size": 128,
+            "micro_batch_size": 256,  # mirroré depuis gpu, non testé/profilé sur TPU spécifiquement
             "accum_steps": 1,
-            "learning_rate": 1e-3,
+            "learning_rate": 1.4e-3,  # idem
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
         },
@@ -309,15 +309,20 @@ DATASET_CONFIGS = {
         # === Entraînement ===
         "optimizer": "adamw",
         "lr_schedule": "cosine",
-        "epochs": 30,          # 10 coupait le decay LR en plein milieu (391 steps/epoch) ; 30 laisse une vraie fenêtre d'apprentissage
-        "patience": 8,  # 5 -> 8 : hypothèse (non confirmée, val jamais augmentée) que la régularisation ralentit la convergence val ; sans risque sur le modèle exporté (best-checkpoint indépendant de patience, trainer.py:467-472), coûte au pire quelques epochs de calcul en plus
-        "warmup_steps": 200,
-        "decay_steps": 11700,  # ≈ steps/epoch (391) × epochs (30) : couvre tout l'entraînement, plus de LR figé à 1e-6 en plein milieu
+        "epochs": 45,          # 30 -> 45 : run v2 (augmentation+patience) n'a jamais early-stoppé et progressait encore à l'epoch 30 (val 0.8416, meilleur epoch = dernier) - plafond pas encore atteint
+        "patience": 8,  # 5 -> 8 : confirmé utile en v2 - jamais déclenché sur 30 epochs, laisse la place pour le run à 45 epochs
+        "warmup_steps": 100,  # 200 -> 100 : re-proportionné à steps/epoch (196 à batch=256, contre 391 à batch=128) pour garder ~0.5 epoch de warmup
+        "decay_steps": 8820,  # 196 (steps/epoch à micro_batch_size=256) × 45 (epochs) - RECALCULÉ suite au changement de micro_batch_size (pas seulement epochs) : cf. bug Epic 5 Addendum 3 (LR figé par un decay_steps désynchronisé)
+        # PAS de label_smoothing ici : task_strategies.py:110-114 est un if/elif exclusif entre mixup et label_smoothing
+        # (mixup gagne toujours si mixup_alpha>0, label_smoothing devient mort) - combiner les deux est un bug dormant
+        # déjà présent sur FIGHTERJET_CLASSIFICATION (dataset_configs.py:103-104, les deux sont non-nuls là-bas aussi,
+        # donc son label_smoothing=0.15 n'a probablement jamais rien fait non plus). Un seul des deux actif ici.
+        "mixup_alpha": 0.05,  # valeur déjà validée sur FIGHTERJET_CLASSIFICATION ("meilleur compromis trouvé") - jamais testé sur CIFAR10
 
         # === Évaluation ===
         "metric_method": "accuracy",
         "report_method": "confusion_matrix",
-        "eval_batch_size": 128,
+        "eval_batch_size": 128,  # volontairement non couplé à micro_batch_size (256) : hors schedule LR, pas de contrainte de cohérence entre les deux
         "eval_use_subset": False,  # 10 000 images val, taille déjà raisonnable
 
         # === Sauvegarde ===
