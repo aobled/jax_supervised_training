@@ -3,7 +3,6 @@ flowchart TB
         DS["Dataset équilibré<br/>~5000 images / classe"]
         DS --> CLF["ClassifierNet<br/>(sophisticated_cnn_128_plus)"]
         CLF --> PKL["classifier.pkl"]
-        PKL --> FROZEN["Paramètres figés"]
     end
 
     subgraph DETTRAIN["Entraînement détection — séparé, à 224x224 uniquement, PAS de dataset full-HD"]
@@ -25,7 +24,7 @@ flowchart TB
         RESCALE --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
-        FROZEN -.params figés.-> CLFCALL
+        PKL -.poids entraînés.-> CLFCALL
         CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
         RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]

@@ -114,7 +114,6 @@ flowchart TB
         DS["Dataset équilibré<br/>~5000 images / classe"]
         DS --> CLF["ClassifierNet<br/>(sophisticated_cnn_128_plus)"]
         CLF --> PKL["classifier.pkl"]
-        PKL --> FROZEN["Paramètres figés"]
     end
 
     subgraph DETTRAIN["Entraînement détection — séparé, à 224x224 uniquement, PAS de dataset full-HD"]
@@ -136,7 +135,7 @@ flowchart TB
         RESCALE --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
-        FROZEN -.params figés.-> CLFCALL
+        PKL -.poids entraînés.-> CLFCALL
         CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
         RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
@@ -153,6 +152,8 @@ flowchart TB
 - **Entraînement** : le détecteur s'entraîne entièrement à 224×224, sur des chunks `.npz` classiques (`fighterjet_detection_dataset_tools_v2.py`), exactement comme aujourd'hui. Aucun changement de volume/format de dataset.
 - **Inférence** : ajout d'une étape **`RESCALE`** (nouvelle, absente du diagramme précédent) entre `TOPK` et `CROP` — symétrique du `RESIZE` d'entrée, ramène les coordonnées de boîte du repère 224×224 vers le repère image d'origine (1920×1080) avant le crop, qui lui échantillonne dans l'image source réelle.
 - **Principe structurant à retenir** : "JAX Single-Pass" n'est un graphe unifié qu'**à l'inférence**. À l'entraînement, détection et classification restent deux entraînements complètement séparés et modulaires (comme aujourd'hui) — la fusion en un seul graphe n'existe qu'au moment de l'inférence, en assemblant les poids déjà entraînés des deux modèles.
+
+**Correction (2026-07-15, question d'Aymeric) — incohérence dans le diagramme.** Le nœud `FROZEN["Paramètres figés"]` n'existait que côté classification, pas côté détection (`DETPKL` se connectait directement à `ENC`). Ce n'était pas une nécessité technique — les deux `.pkl` sont traités de façon strictement identique à l'inférence (poids chargés, aucun gradient) — mais un reliquat de la toute première version du diagramme, écrit avant que la branche d'entraînement détection n'existe, jamais harmonisé depuis. Corrigé : `FROZEN` retiré, `classifier.pkl` se connecte désormais directement à `CLFCALL` comme `detector.pkl` se connecte à `ENC` — les deux branches sont maintenant symétriques, le label de l'arête en pointillé porte à lui seul l'information "figé".
 
 ## Risques identifiés
 
