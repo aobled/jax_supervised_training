@@ -316,6 +316,121 @@ def create_sophisticated_cnn_32_plus(num_classes=2, dropout_rate=0.0):
     return SophisticatedCNN32Plus(num_classes=num_classes, dropout_rate=dropout_rate)
 
 
+class SophisticatedCNN64Plus(nn.Module):
+    """
+    CNN sophistiqué OPTIMISÉ+ pour images 64×64 (ex. FIGHTERJET_CLASSIFICATION_64x64)
+
+    Variante intermédiaire entre SophisticatedCNN32Plus et SophisticatedCNN128Plus :
+    mêmes canaux que 32Plus (32→48→64→128→bottleneck 192→256, déjà validés sur CIFAR-10),
+    mais avec la 3e étape de max-pool de 128Plus (32Plus s'arrête à 2 pools) pour atteindre
+    la même résolution finale 8×8 que 32Plus depuis une entrée deux fois plus grande.
+    """
+    num_classes: int = 32
+    dropout_rate: float = 0.0
+
+    @nn.compact
+    def __call__(self, x, training=True):
+        # Input: (B, 64, 64, C) où C=1 (grayscale) ou C=3 (RGB)
+
+        # === BLOC 0: Conv initiale ===
+        x = nn.Conv(32, (3, 3), padding="SAME", use_bias=False,
+                   kernel_init=nn.initializers.kaiming_normal())(x)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        # === BLOC 1: 48 canaux ===
+        x = SeparableConv(48, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        residual = nn.Conv(48, (1, 1), padding="SAME", use_bias=False,
+                          kernel_init=nn.initializers.kaiming_normal())(x)
+        residual = nn.BatchNorm(use_running_average=not training)(residual)
+
+        x = SeparableConv(48, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = x + residual
+        x = nn.silu(x)
+
+        # Max Pool 1: 64×64 → 32×32
+        x = nn.max_pool(x, (2, 2), strides=(2, 2))
+
+        # === BLOC 2: 64 canaux ===
+        x = SeparableConv(64, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        residual = nn.Conv(64, (1, 1), padding="SAME", use_bias=False,
+                          kernel_init=nn.initializers.kaiming_normal())(x)
+        residual = nn.BatchNorm(use_running_average=not training)(residual)
+
+        x = SeparableConv(64, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = x + residual
+        x = nn.silu(x)
+
+        # Max Pool 2: 32×32 → 16×16
+        x = nn.max_pool(x, (2, 2), strides=(2, 2))
+
+        # === BLOC 3: 128 canaux ===
+        x = SeparableConv(128, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        x = SeparableConv(128, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        # SE Attention
+        x = SEBlock(reduction=16)(x, training)
+
+        # Max Pool 3: 16×16 → 8×8 (contrairement à 32Plus, qui s'arrête ici sans pooler —
+        # nécessaire ici pour retomber sur la même résolution finale 8×8 depuis une entrée 64×64)
+        x = nn.max_pool(x, (2, 2), strides=(2, 2))
+
+        # === BLOC 4: bottleneck 192 -> 256 canaux ===
+        x = nn.Conv(192, (1, 1), padding="SAME", use_bias=False,
+                   kernel_init=nn.initializers.kaiming_normal())(x)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        x = SeparableConv(256, (3, 3))(x, training)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = nn.silu(x)
+
+        residual = nn.Conv(256, (1, 1), padding="SAME", use_bias=False,
+                          kernel_init=nn.initializers.kaiming_normal())(x)
+        residual = nn.BatchNorm(use_running_average=not training)(residual)
+
+        x = nn.Conv(256, (1, 1), padding="SAME", use_bias=False,
+                   kernel_init=nn.initializers.kaiming_normal())(x)
+        x = nn.BatchNorm(use_running_average=not training)(x)
+        x = x + residual
+        x = nn.silu(x)
+
+        # SE Attention
+        x = SEBlock(reduction=16)(x, training)
+
+        # Spatial Attention
+        x = SpatialAttention()(x, training)
+
+        # Global Average Pooling
+        x = jnp.mean(x, axis=(1, 2))  # (B, 256)
+
+        # Classification head
+        x = nn.LayerNorm()(x)
+        x = nn.Dense(192, use_bias=True)(x)
+        x = nn.silu(x)
+        x = nn.Dropout(self.dropout_rate, deterministic=not training)(x)
+
+        return nn.Dense(self.num_classes, use_bias=True)(x)
+
+
+def create_sophisticated_cnn_64_plus(num_classes=2, dropout_rate=0.0):
+    """Crée une instance de SophisticatedCNN64Plus, variante intermédiaire pour images 64×64"""
+    return SophisticatedCNN64Plus(num_classes=num_classes, dropout_rate=dropout_rate)
+
+
 class AircraftDetectorUNet(nn.Module):
     """
     Détecteur d'avions par Segmentation Sémantique (U-Net)
@@ -516,6 +631,7 @@ MODELS = {
     'aircraft_detector_unet': create_aircraft_detector_unet, # Semantic Segmentation U-Net
     'aircraft_detector_miniunet': create_aircraft_detector_miniunet,
     'sophisticated_cnn_128_plus': create_sophisticated_cnn_128_plus,
+    'sophisticated_cnn_64_plus': create_sophisticated_cnn_64_plus,
     'sophisticated_cnn_32_plus': create_sophisticated_cnn_32_plus,
     'kepler_1d_cnn': create_kepler_1d_cnn,
 }
