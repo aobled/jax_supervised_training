@@ -142,7 +142,6 @@ DATASET_CONFIGS = {
         
         # === Modèle ---
         "model_name": "aircraft_detector_unet",
-        #"model_name": "aircraft_detector_miniunet",
         "grid_size": 224,      # Segmentation sémantique (output size = input size)
         "loss_method": "segmentation",
         "loss_params": {
