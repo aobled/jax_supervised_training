@@ -1,11 +1,13 @@
 ---
 title: "JAX Single-Pass — notes d'exploration technique (détection + classification)"
-status: exploration
+status: paused
 created: 2026-07-14
-updated: 2026-07-14
+updated: 2026-07-15
 ---
 
 # JAX Single-Pass — Détection + Classification unifiées
+
+**En pause depuis le 2026-07-15** — Aymeric a un autre sujet à traiter d'abord. Aucun epic/story créé pour ce chantier (encore en phase de planification pure), rien à repasser en `backlog` dans `sprint-status.yaml`. Pour reprendre : relire ce document en entier (toutes les décisions et questions ouvertes sont datées), prochaine étape naturelle = `bmad-architecture` pour formaliser en spine, une fois le prototype de validation (`RESIZE`/`RESCALE`/crop, parité pixel) fait ou explicitement sauté.
 
 Nom retenu par Aymeric le 2026-07-14 : **"JAX Single-Pass"** (alias personnel noté : "mini-myc" — à clarifier si ça doit apparaître ailleurs que dans la tête d'Aymeric).
 
@@ -212,3 +214,4 @@ Dans le même esprit que les runs CIFAR10 de cette session — valider les incon
 - **2026-07-14 (suite)** — Aymeric confirme la recommandation (pipeline unifié d'abord). Nom retenu : "JAX Single-Pass". Aymeric propose de simplifier l'input à 224×224 (abandon du full HD) mais s'interroge sur la perte de détail que ça impliquerait. Relaie une technique de crop&resize par grid-sample différentiable (bilinéaire, coordonnées continues). Winston valide la technique (`jax.scipy.ndimage.map_coordinates`) mais clarifie qu'elle ne résout pas le besoin d'une image source haute résolution — elle change seulement le mécanisme de lecture, pas la question de résolution. Nouvelle question bloquante posée : résolution native réelle des vidéos sources (non fixée dans le code, dépend du fichier). `vmap` sur 20 slots de boîtes confirmé comme bon pattern.
 - **2026-07-14 (suite)** — Aymeric fixe la résolution canonique à 1920×1080 grayscale (normalisation python en amont si besoin) et propose une structure à deux branches (224×224 pour la détection, pleine résolution conservée pour le crop) — résout élégamment le besoin de deux images identifié précédemment. Premier schéma ASCII fourni, mélangeant deux options (upgrade backbone/FPN + Top-K sur heatmap), reconnu par Aymeric. Winston sépare les deux et recommande de ne retenir que le Top-K sur heatmap (style CenterNet, anchor-free) — élimine `findContours`, répare structurellement la fusion des boîtes, potentiellement plus économe en données que le YOLO à ancres testé historiquement. Backbone/FPN reporté (pas de problème mesuré qui le justifie). Diagramme mermaid produit.
 - **2026-07-15** — Aymeric demande un tri d'impact codebase (40 fichiers `.py`) avant de s'engager plus loin — fait, avec vérification ciblée de deux points incertains (`data_management.py` attend une clé `'masks'`, `main.py` a un routage `task_type` simple). Aymeric relit ensuite le diagramme et repère deux trous réels : le masque de validité et les coordonnées de boîte n'étaient pas portés jusqu'à la sortie finale — corrigé. Puis question sur l'entraînement : confirmé que le détecteur s'entraîne à 224×224 seul, aucun dataset full-HD nécessaire — exactement le principe déjà utilisé aujourd'hui (`inference_utils.py:330`, resize du masque vers l'original après inférence, pas avant). Ajout d'une étape `RESCALE` manquante dans le diagramme (224×224 → repère original, symétrique du `RESIZE` d'entrée) et clarification du principe structurant : le graphe n'est unifié qu'à l'inférence, l'entraînement reste modulaire. Nouveau risque de parité identifié côté resize d'entrée détection (PIL/LANCZOS actuel vs méthode JAX à choisir).
+- **2026-07-15 (suite)** — Aymeric repère une incohérence dans le diagramme (nœud `FROZEN` présent côté classification, absent côté détection) — corrigé, reliquat de la première version du diagramme, pas une nécessité technique. Aymeric a un autre sujet à traiter en priorité : document mis en pause (`status: paused`), pas d'epic créé donc rien à repasser en backlog dans `sprint-status.yaml`.
