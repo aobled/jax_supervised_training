@@ -1061,26 +1061,25 @@ class PhotoViewer:
     def load_jax_models(self):
         print("🏗️ Chargement des modèles JAX en arrière-plan (Lazy Loading)...")
         import sys
-        import jax
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
         from dataset_configs import get_dataset_config
         from inference_utils import (
-            load_detection_model, load_jax_model
+            load_detection_model, load_jax_model, build_predict_fn, build_clf_predict_fn
         )
-        
+
         self.clf_config = get_dataset_config("FIGHTERJET_CLASSIFICATION")
         script_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(script_dir)
         det_path = os.path.join(parent_dir, "best_model_detection.pkl")
         clf_path = os.path.join(parent_dir, "best_model.pkl")
-        
+
         det_model, det_vars, self.det_config = load_detection_model(det_path)
         clf_model, clf_vars, self.dataset_mean, self.dataset_std = load_jax_model(clf_path, self.clf_config)
-        
+
         print("⚡ Compilation JIT...")
-        self.det_predict_fn = jax.jit(lambda x: det_model.apply(det_vars, x, training=False))
-        self.clf_predict_fn = jax.jit(lambda x: clf_model.apply(clf_vars, x, training=False))
+        self.det_predict_fn = build_predict_fn(det_model, det_vars)
+        self.clf_predict_fn = build_clf_predict_fn(clf_model, clf_vars)
         
         self.jax_models_loaded = True
         print("✅ Modèles JAX prêts !")
