@@ -177,15 +177,18 @@ Décision (2026-07-14, Aymeric) : nouvelle version du script de préparation de 
 
 40 fichiers `.py` au total (18 racine + 22 `tools/`). Pas de passe aveugle exhaustive — triage ciblé, à approfondir lors de l'architecture spine formelle (lecture complète des fichiers UPDATE, pas juste la liste).
 
-**Directement concernés (changement nécessaire) :**
+**Directement concernés — brique entraînement `JAX_DETECTOR` (nom de config retenu le 2026-07-15) :**
 - `model_library.py` — nouvelle classe de modèle (encoder-decoder + tête heatmap/taille)
-- `task_strategies.py` — nouvelle stratégie ou extension de `DetectionStrategy` (décodage Top-K)
+- `task_strategies.py` — nouvelle stratégie ou extension de `DetectionStrategy` (loss heatmap+taille, décodage Top-K)
 - `loss_functions.py` — nouvelles fonctions de perte (heatmap focal loss + régression taille) — rien d'existant à réutiliser (`compute_grid_loss` supprimé comme code mort à l'Epic 3)
-- `dataset_configs.py` — nouvelle entrée de config
-- `inference_utils.py` — `decode_segmentation_and_detect(_batch)`/`non_max_suppression` obsolètes pour ce pipeline ; nouvelles fonctions crop&resize + extraction de pics à ajouter
+- `dataset_configs.py` — nouvelle entrée `JAX_DETECTOR` (config d'entraînement classique, un modèle, un dataset — rentre dans le moule existant)
 - `data_management.py` — **vérifié** (ligne 300) : le chargeur de chunks détection attend une clé `'masks'` explicite dans les `.npz`. Cassera tel quel avec le nouveau format (heatmap+tailles) — branche/variante nécessaire.
 - `fighterjet_detection_dataset_tools_v2.py` — nouveau fichier déjà planifié
-- `bounding_boxes_with_classification_from_video_generation.py` et `tools/bounding_boxes_with_classification_from_images_generation.py` — orchestration crop+classify actuelle, se simplifie radicalement une fois le graphe unifié
+
+**Directement concernés — brique composition d'inférence "JAX Single-Pass" (2026-07-15, nouvelle clarification) :**
+- **Pas une entrée `DATASET_CONFIGS`** — `validate_config` exige un `model_name` unique, incompatible avec une composition à deux modèles. Vit ailleurs (voir ci-dessous), lit `JAX_DETECTOR` et `FIGHTERJET_CLASSIFICATION` via `get_dataset_config()` sans les modifier.
+- `inference_utils.py` (ou nouveau fichier dédié si ça grossit) — nouvelle fonction `build_single_pass_predict_fn(...)`, dans l'esprit de `build_predict_fn`/`build_clf_predict_fn` mais composant les deux modèles figés + les couches déterministes (`RESIZE`, extraction de pics, `RESCALE`, `CROP`) en un seul callable JIT. `decode_segmentation_and_detect(_batch)`/`non_max_suppression` obsolètes pour ce nouveau chemin (restent utilisés par l'ancien pipeline segmentation, non touché).
+- `bounding_boxes_with_classification_from_video_generation.py` et `tools/bounding_boxes_with_classification_from_images_generation.py` — orchestration crop+classify actuelle, se simplifie radicalement une fois `build_single_pass_predict_fn` disponible
 
 **À vérifier/adapter (probablement mineur) :**
 - `main.py` — routage `task_type` (**vérifié** lignes 113/124/132, simple `if/elif`) — ajout contenu
@@ -220,3 +223,4 @@ Dans le même esprit que les runs CIFAR10 de cette session — valider les incon
 - **2026-07-15 (suite)** — Aymeric repère une incohérence dans le diagramme (nœud `FROZEN` présent côté classification, absent côté détection) — corrigé, reliquat de la première version du diagramme, pas une nécessité technique. Aymeric a un autre sujet à traiter en priorité : document mis en pause (`status: paused`), pas d'epic créé donc rien à repasser en backlog dans `sprint-status.yaml`.
 - **2026-07-15 (reprise, pendant la pause)** — Aymeric revient discuter du sujet sans relancer les travaux, teste deux affirmations qu'il pense fausses : "les modèles détection/classification sont conservés ISO" (faux pour la détection — nouvelle tête par point central décidée, pas une reprise à l'identique ; vrai pour la classification) et "le nouveau modèle n'aura pas besoin d'être entraîné" (faux pour le nouveau détecteur — c'est le principal chantier restant ; vrai seulement pour les couches déterministes et la réutilisation figée de la classification, à ne pas appeler "transfert learning" au sens strict). Winston propose une vraie piste de transfert learning (initialiser l'encodeur du nouveau détecteur avec les poids de l'UNet actuel) comme terrain d'entente — pas encore tranchée, item d'action #9 ajouté.
 - **2026-07-15 (reprise, suite)** — Aymeric reformule correctement les deux points corrigés et repose la question full-HD/volume de dataset, avec un calcul explicite (~×40) motivant l'inquiétude. Reconfirmé (déjà répondu dans l'échange précédent, juste requantifié) : ratio exact ~41×, non nécessaire, le pattern "resize à la préparation du dataset, pas à l'entraînement" est déjà celui de l'outil actuel. Nuance mineure notée (diversité de résolution des images sources d'entraînement).
+- **2026-07-15 (reprise, suite 2)** — Aymeric propose de garder `FIGHTERJET_CLASSIFICATION` tel quel et de créer une nouvelle config `JAX_DETECTOR` pour le nouveau détecteur, puis demande où "JAX Single-Pass" lui-même sera créé. Clarification structurante : ce n'est pas une troisième entrée `DATASET_CONFIGS` (incompatible avec `validate_config` qui exige un `model_name` unique — composition à deux modèles, pas un entraînement) mais une nouvelle fonction de composition d'inférence (`build_single_pass_predict_fn`, dans l'esprit de `build_predict_fn`/`build_clf_predict_fn`), probablement dans `inference_utils.py`. Triage d'impact codebase affiné pour distinguer les deux briques (entraînement `JAX_DETECTOR` vs composition d'inférence).
