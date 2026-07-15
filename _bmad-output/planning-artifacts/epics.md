@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1]
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-JAX_Detection-2026-07-12/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-JAX_Detection-2026-07-12/ARCHITECTURE-SPINE.md
@@ -7,6 +7,8 @@ inputDocuments:
   - docs/architecture.md
   - docs/source-tree-analysis.md
   - _bmad-output/planning-artifacts/prds/prd-JAX_Detection-2026-07-14/prd.md
+  - _bmad-output/specs/spec-jax-single-pass/SPEC.md
+  - _bmad-output/planning-artifacts/architecture/architecture-jax_supervised_training-2026-07-15/ARCHITECTURE-SPINE.md
 ---
 
 # Refactor jax_supervised_training — Epic Breakdown
@@ -690,3 +692,49 @@ So that la non-régression fonctionnelle (NFR1) et l'absence d'échec silencieux
 **When** `main.py` est exécuté sur Colab (`FIGHTERJET_CLASSIFICATION` ou `CIFAR10`) sous le nouveau nom
 **Then** l'entraînement démarre et se déroule sans erreur de chemin, avec un comportement identique à avant renommage
 **And** si un point de lecture de l'ancien nom avait été oublié, l'échec se serait manifesté immédiatement et explicitement (pas un fallback silencieux) — confirmé a posteriori par l'absence d'un tel incident
+
+## Requirements Inventory — JAX Single-Pass
+
+Source : `_bmad-output/specs/spec-jax-single-pass/SPEC.md` (kernel Capabilities/Constraints/Non-goals, produit par `bmad-spec` — pas de PRD classique pour cette initiative) et `_bmad-output/planning-artifacts/architecture/architecture-jax_supervised_training-2026-07-15/ARCHITECTURE-SPINE.md` (AD-9 à AD-20, hérite AD-1 à AD-8 de la spine parente du refactor Epic 1-3). Initiative distincte des Epics 1-6 — remplace le pipeline UNet+python/cv2+classification par un détecteur par point central (`JAX_DETECTOR`, nouvel entraînement) et une composition d'inférence JAX-native (`build_single_pass_predict_fn`) réutilisant `FIGHTERJET_CLASSIFICATION` figée.
+
+### Functional Requirements
+
+FR1 (CAP-1) : Un nouveau modèle de détection par point central (`JAX_DETECTOR`, heatmap de centres + régression de taille) peut être entraîné sur des chunks `.npz` classiques à 224×224 — jamais sur un dataset full-HD (ratio ~41× prohibitif) — remplaçant la segmentation UNet comme méthode de détection.
+FR2 (CAP-2) : Une unique fonction JIT-compilée (`build_single_pass_predict_fn`) produit, à partir d'une image 1920×1080 grayscale, jusqu'à 20 détections (boîte+classe+scores), sans `cv2.findContours` ni boucle de recadrage python sur le chemin critique.
+FR3 (CAP-3) : Deux avions proches/en contact, qui fusionnent aujourd'hui en une seule détection sous segmentation+`findContours`, sont prédits comme deux instances indépendantes sous la nouvelle tête par point central.
+FR4 (CAP-4) : `FIGHTERJET_CLASSIFICATION` est chargée figée dans le nouveau graphe d'inférence et réutilisée sans réentraînement.
+
+### NonFunctional Requirements
+
+NFR1 : `FIGHTERJET_CLASSIFICATION` ne doit jamais être réentraînée par ce chantier — chargement figé uniquement.
+NFR2 : Aucun dataset d'entraînement ne peut nécessiter des images full-HD ; `JAX_DETECTOR` s'entraîne uniquement à sa résolution de config.
+NFR3 — Non-régression / rollback : l'ancien pipeline complet (`FIGHTERJET_DETECTION`, `AircraftDetectorUNet`, `DetectionStrategy`, `DetectionDataset`, `decode_segmentation_and_detect(_batch)`, `fighterjet_detection_dataset_tools.py`, et leurs consommateurs incl. `tools/audit_dataset_detection.py` et `tools/boxes_process_manual_tkinter.py`) reste pleinement fonctionnel, sans modification, pendant toute l'epic et après — exigence explicite de l'utilisateur, filet de sécurité en cas d'échec de l'initiative.
+NFR4 : La composition d'inférence doit être zéro-python/cv2 sur son chemin critique (pas de `cv2.findContours`, pas de boucle de recadrage python).
+NFR5 : La sortie de `build_single_pass_predict_fn` est toujours une structure à 20 slots fixes (`boxes`/`classes`/`class_scores`/`detection_scores`/`valid_mask`), slots invalides à zéro, `valid_mask` seule autorité pour distinguer un slot réel d'un slot vide.
+
+### Additional Requirements (Architecture)
+
+- **AD-9** : Tête de détection par point central (anchor-free) — heatmap de centres + régression de taille, extraction JAX-native (`jax.lax.reduce_window` + `jax.lax.top_k`), jamais `cv2.findContours`.
+- **AD-10** : Backbone + Feature Pyramid Network reporté — encodeur dans la même famille que l'UNet actuel tant qu'aucune insuffisance mesurée ne le justifie.
+- **AD-11** : Crop différentiable par `jax.scipy.ndimage.map_coordinates` (grid-sample bilinéaire), `vmap` sur 20 slots fixes — jamais un sous-réseau appris ni une découpe cv2.
+- **AD-12** : Résolution canonique 1920×1080, double branche interne (`RESIZE` déterministe pour la détection, pleine résolution conservée pour le `CROP`) ; `RESIZE` dérive toujours sa taille cible de la clé `image_size` de la config `JAX_DETECTOR`, jamais un littéral codé en dur.
+- **AD-13** : `RESCALE` symétrique entre décodage et recadrage ; le stride/résolution de sortie du détecteur est une valeur unique nommée, partagée par l'extraction de pics et `RESCALE`.
+- **AD-14** : Entraînement toujours modulaire — le graphe unifié n'existe qu'à l'inférence ; `JAX_DETECTOR` s'entraîne seul, `FIGHTERJET_CLASSIFICATION` n'est jamais réentraînée.
+- **AD-15** : Sortie à 20 slots fixes, slots invalides remplis à zéro ; le seuil de score de détection dérivant `valid_mask` vit dans la config `JAX_DETECTOR` (jamais une constante privée dupliquée).
+- **AD-16** : `JAX_DETECTOR` est une entrée `DATASET_CONFIGS` standard ; la composition JAX Single-Pass n'en est pas une — elle vit comme fonction `build_single_pass_predict_fn` dans `inference_utils.py` (AD-1 hérité), lisant les deux configs via `get_dataset_config()` sans les modifier.
+- **AD-17** : Nouveau format de tâche = nouvelle classe dédiée dans `task_strategies.py`/`data_management.py` (jamais une branche conditionnelle) ; le littéral `task_type` est défini une seule fois et référencé identiquement aux trois points de dispatch (`task_strategies.py`, `data_management.py`, **et `main.py`**, `main.py:107-143`).
+- **AD-18** : Le schéma d'échange `.npz` heatmap+taille (noms de clés, formes, unités, formule du rayon gaussien) est défini par un module/paire de fonctions partagées, importées par `fighterjet_detection_dataset_tools_v2.py` (producteur) et la nouvelle classe `data_management.py` (consommateur) — jamais réimplémenté indépendamment de chaque côté.
+- **AD-19** : Grid-based/YOLO à ancres reporté, pas abandonné — signal d'entraînement sur le chevauchement quasi inexistant (~1.36% des images ont 2+ boîtes) ; ne pas reconsidérer sans une stratégie de données synthétiques dédiée.
+- **AD-20** : Non-régression explicite — aucune story de cette initiative ne supprime, ne renomme, ni ne modifie le comportement de l'ancien pipeline (`FIGHTERJET_DETECTION` et ses consommateurs).
+- **Stack** : aucune nouvelle dépendance externe introduite — `jax.scipy.ndimage.map_coordinates`, `jax.lax.reduce_window`, `jax.lax.top_k` font partie de JAX déjà utilisé par le projet.
+
+### UX Design Requirements
+
+N/A — aucun contrat UX applicable. Aucun changement d'interface : les outils GUI existants (`tools/boxes_process_manual_tkinter.py`) restent sur l'ancien pipeline (AD-20), non modifiés par cette initiative.
+
+### FR Coverage Map
+
+FR1: Epic 7 — Entraînement JAX_DETECTOR
+FR2: Epic 8 — Composition d'inférence JAX Single-Pass
+FR3: Epic 8 — Composition d'inférence JAX Single-Pass (fusion de boîtes résolue structurellement)
+FR4: Epic 8 — Composition d'inférence JAX Single-Pass (classification figée réutilisée)
