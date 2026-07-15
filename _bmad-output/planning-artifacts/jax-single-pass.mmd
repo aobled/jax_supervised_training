@@ -6,19 +6,27 @@ flowchart TB
         PKL --> FROZEN["Paramètres figés"]
     end
 
-    subgraph DETECT["JAX Single-Pass — détecteur (nouveau, à concevoir)"]
+    subgraph DETTRAIN["Entraînement détection — séparé, à 224x224 uniquement, PAS de dataset full-HD"]
+        DSD["Chunks .npz 224x224<br/>(fighterjet_detection_dataset_tools_v2.py,<br/>cibles heatmap+taille depuis raw_boxes)"]
+        DSD --> ENCTRAIN["Encoder-decoder détection<br/>(entraîné à 224x224, comme aujourd'hui)"]
+        ENCTRAIN --> DETPKL["detector.pkl"]
+    end
+
+    subgraph DETECT["JAX Single-Pass — inférence (graphe unifié)"]
         IMG["Image 1920x1080 grayscale<br/>résolution canonique<br/>(normalisation python en amont si besoin)"]
-        IMG --> RESIZE["Resize déterministe fixe<br/>(pas une couche apprise)"]
-        RESIZE --> ENC["Encoder-decoder détection<br/>(même famille que l'UNet actuel —<br/>pas de backbone/FPN pour l'instant)"]
-        ENC --> HM["Heatmap centres + régression tailles<br/>(remplace le masque de segmentation)"]
+        IMG --> RESIZE["Resize déterministe fixe<br/>1920x1080 → 224x224<br/>(méthode à valider vs. resize<br/>d'entraînement PIL/LANCZOS actuel)"]
+        RESIZE --> ENC["Encoder-decoder détection<br/>(poids entraînés, gelés à l'inférence)"]
+        DETPKL -.poids entraînés.-> ENC
+        ENC --> HM["Heatmap centres + régression tailles<br/>(repère 224x224)"]
         HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
-        PEAK --> TOPK["Top-K = 20 boxes<br/>+ scores détection<br/>+ masque slots invalides<br/>(conf_threshold, même principe<br/>que decode_segmentation_and_detect)"]
+        PEAK --> TOPK["Top-K = 20 boxes (repère 224x224)<br/>+ scores détection<br/>+ masque slots invalides"]
+        TOPK --> RESCALE["Rescale déterministe fixe<br/>224x224 → repère 1920x1080<br/>(symétrique du RESIZE d'entrée —<br/>même principe que le resize du<br/>masque vers l'original aujourd'hui,<br/>inference_utils.py:330)"]
         IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
-        TOPK --> CROP
+        RESCALE --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
         FROZEN -.params figés.-> CLFCALL
         CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
-        TOPK -."boxes + scores détection<br/>+ masque validité".-> OUT
+        RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
     end

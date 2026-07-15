@@ -117,33 +117,48 @@ flowchart TB
         PKL --> FROZEN["Paramètres figés"]
     end
 
-    subgraph DETECT["JAX Single-Pass — détecteur (nouveau, à concevoir)"]
+    subgraph DETTRAIN["Entraînement détection — séparé, à 224x224 uniquement, PAS de dataset full-HD"]
+        DSD["Chunks .npz 224x224<br/>(fighterjet_detection_dataset_tools_v2.py,<br/>cibles heatmap+taille depuis raw_boxes)"]
+        DSD --> ENCTRAIN["Encoder-decoder détection<br/>(entraîné à 224x224, comme aujourd'hui)"]
+        ENCTRAIN --> DETPKL["detector.pkl"]
+    end
+
+    subgraph DETECT["JAX Single-Pass — inférence (graphe unifié)"]
         IMG["Image 1920x1080 grayscale<br/>résolution canonique<br/>(normalisation python en amont si besoin)"]
-        IMG --> RESIZE["Resize déterministe fixe<br/>(pas une couche apprise)"]
-        RESIZE --> ENC["Encoder-decoder détection<br/>(même famille que l'UNet actuel —<br/>pas de backbone/FPN pour l'instant)"]
-        ENC --> HM["Heatmap centres + régression tailles<br/>(remplace le masque de segmentation)"]
+        IMG --> RESIZE["Resize déterministe fixe<br/>1920x1080 → 224x224<br/>(méthode à valider vs. resize<br/>d'entraînement PIL/LANCZOS actuel)"]
+        RESIZE --> ENC["Encoder-decoder détection<br/>(poids entraînés, gelés à l'inférence)"]
+        DETPKL -.poids entraînés.-> ENC
+        ENC --> HM["Heatmap centres + régression tailles<br/>(repère 224x224)"]
         HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
-        PEAK --> TOPK["Top-K = 20 boxes<br/>+ scores détection<br/>+ masque slots invalides<br/>(conf_threshold, même principe<br/>que decode_segmentation_and_detect)"]
+        PEAK --> TOPK["Top-K = 20 boxes (repère 224x224)<br/>+ scores détection<br/>+ masque slots invalides"]
+        TOPK --> RESCALE["Rescale déterministe fixe<br/>224x224 → repère 1920x1080<br/>(symétrique du RESIZE d'entrée —<br/>même principe que le resize du<br/>masque vers l'original aujourd'hui,<br/>inference_utils.py:330)"]
         IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
-        TOPK --> CROP
+        RESCALE --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
         FROZEN -.params figés.-> CLFCALL
         CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
-        TOPK -."boxes + scores détection<br/>+ masque validité".-> OUT
+        RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
     end
 ```
 
-**Précision (2026-07-15, question d'Aymeric)** : le diagramme initial ne faisait pas ressortir explicitement en sortie (a) le masque de validité des 20 slots et (b) les coordonnées de boîte — corrigé ci-dessus.
+**Précision (2026-07-15, question d'Aymeric)** : le diagramme initial ne faisait pas ressortir explicitement en sortie (a) le masque de validité des 20 slots et (b) les coordonnées de boîte — corrigé.
 
 - **Slots vides** : le classifieur reçoit toujours un crop 128×128 (même du bruit/fond) et retourne toujours une distribution softmax pleine — il ne peut pas "retourner 0". La distinction slot réel/vide se fait via un **masque de validité séparé**, dérivé du score de détection (confiance du pic sur le heatmap) comparé à un seuil — même principe que `conf_threshold=0.3` déjà utilisé dans `decode_segmentation_and_detect` aujourd'hui, juste calculé par pic plutôt que par aire de contour. Ce masque doit être porté jusqu'à la sortie finale, pas seulement consommé en interne pour sélectionner quoi recadrer.
 - **Coordonnées de boîte** : conservées en sortie finale (pas seulement consommées par l'étape de crop) — nécessaire pour tout usage pratique en aval (dessin sur vidéo dans `bounding_boxes_with_classification_from_video_generation.py`, notamment).
+
+**Précision (2026-07-15, question d'Aymeric) — entraînement détection et full-HD** : confirmé, **aucun dataset full-HD n'est nécessaire pour entraîner le détecteur.** Ce n'est pas un nouveau concept pour ce projet : le système actuel fait déjà exactement ça — `decode_segmentation_and_detect` (`inference_utils.py:330`) prédit son masque à 224×224 puis le redimensionne vers la taille d'origine (`cv2.resize(pred_mask, (w_orig, h_orig)...)`) *après* l'inférence, avant l'extraction de boîtes. Le modèle actuel ne s'entraîne jamais sur du full-HD.
+
+- **Entraînement** : le détecteur s'entraîne entièrement à 224×224, sur des chunks `.npz` classiques (`fighterjet_detection_dataset_tools_v2.py`), exactement comme aujourd'hui. Aucun changement de volume/format de dataset.
+- **Inférence** : ajout d'une étape **`RESCALE`** (nouvelle, absente du diagramme précédent) entre `TOPK` et `CROP` — symétrique du `RESIZE` d'entrée, ramène les coordonnées de boîte du repère 224×224 vers le repère image d'origine (1920×1080) avant le crop, qui lui échantillonne dans l'image source réelle.
+- **Principe structurant à retenir** : "JAX Single-Pass" n'est un graphe unifié qu'**à l'inférence**. À l'entraînement, détection et classification restent deux entraînements complètement séparés et modulaires (comme aujourd'hui) — la fusion en un seul graphe n'existe qu'au moment de l'inférence, en assemblant les poids déjà entraînés des deux modèles.
 
 ## Risques identifiés
 
 - **Parité pixel pour le modèle de classification figé.** `FIGHTERJET_CLASSIFICATION` a été entraîné sur des crops produits par cv2 (interpolation, conversion niveaux de gris `cv2.cvtColor`, stretching non-uniforme). Un crop JAX qui ne reproduit pas exactement ce comportement numérique introduirait une régression silencieuse (distribution d'entrée légèrement décalée). **Vérifiable à coût nul avant tout réentraînement** — comparaison numérique crop JAX vs cv2 sur images réelles.
   - **Précision (2026-07-14)** : même avec la bonne formule mathématique, plusieurs conventions d'alignement pixel existent (bord vs centre du pixel — le classique problème "align corners" qui piège souvent les portages entre bibliothèques). `map_coordinates` doit être testé précisément contre `cv2.resize` sur ce point, pas juste "avoir l'air pareil".
+- **Nouveau (2026-07-15) — parité resize pour l'entrée détection.** `fighterjet_detection_dataset_tools.py:104` utilise PIL/`LANCZOS` pour générer les chunks d'entraînement 224×224. Si le `RESIZE` déterministe à l'inférence (JAX, méthode pas encore choisie) diffère, le détecteur verrait une distribution d'entrée légèrement différente de celle sur laquelle il a été entraîné — même classe de risque que la parité crop ci-dessus, côté entrée détection cette fois. À valider avec le même type de test (comparaison numérique, pas visuelle).
 - ~~Décodage des boîtes reste cv2 (`findContours`)~~ — **superseded, voir "Décision : tête de détection par point central" ci-dessus.**
 - Chevauchement d'avions : reporté, pas résolu — la tête par point central est structurellement mieux adaptée mais reste limitée par le manque de données de chevauchement (voir section volume de données).
 - ~~Annotations d'entraînement au niveau boîte~~ — **résolu, meilleur cas possible.** Vérifié dans `fighterjet_detection_dataset_tools.py:70,93,113-129` : les coordonnées de boîte (`data["annotation"]["bbox"]`, format x/y/w/h) sont la source de vérité brute. Le masque de segmentation actuel est *synthétisé* à partir des boîtes (dessin d'ellipses plutôt que de rectangles — mitigation partielle déjà en place "pour éviter la fusion des masques pour des objets proches", ligne 126, donc ce problème était déjà identifié avant cette discussion). Conséquence : générer les cibles heatmap+taille de la nouvelle tête ne nécessite ni masque intermédiaire ni `cv2.findContours`, même hors ligne — direct depuis `raw_boxes`.
@@ -182,9 +197,10 @@ Décision (2026-07-14, Aymeric) : nouvelle version du script de préparation de 
 Dans le même esprit que les runs CIFAR10 de cette session — valider les inconnues les moins chères avant d'investir dans le code :
 
 1. Parité crop JAX (`map_coordinates`) vs cv2, y compris la convention d'alignement pixel (script autonome, pas de modèle à réentraîner)
-2. Confirmer le format des annotations d'entraînement (boîtes vs masques uniquement) — conditionne la génération des cibles heatmap+taille
+1bis. Parité resize JAX (1920×1080→224×224) vs PIL/LANCZOS (dataset d'entraînement actuel) — même type de test, côté entrée détection
+2. ~~Confirmer le format des annotations d'entraînement~~ — résolu, boîtes brutes disponibles (voir "Risques identifiés")
 3. Prototype de la tête par point central sur le sous-ensemble existant, comparer au décodage actuel sur les cas déjà identifiés (vidéo du 14 juillet)
-4. Quantifier le budget mémoire (résolution 1920×1080 fixe, batch cible, matériel) — décision ouverte #6
+4. ~~Quantifier le budget mémoire~~ — résolu, négligeable (voir section "Ressources")
 5. Une fois 1-4 validés : architecture spine formelle (`bmad-architecture`) avec le diagramme mermaid ci-dessus comme point de départ
 6. Réentraînement complet du nouveau modèle de détection — seulement après validation des étapes précédentes
 
@@ -194,3 +210,4 @@ Dans le même esprit que les runs CIFAR10 de cette session — valider les incon
 - **2026-07-14 (suite)** — Aymeric fournit les chiffres réels de volume (confirmé option (a) : stats séparées détection/classification). Détection combinée = 142 673 images, mais seulement 1.36% ont 2+ boxes, et le vrai cas de chevauchement ne représente qu'une poignée d'exemples. Conclusion : le volume global n'est plus bloquant, mais le signal d'entraînement spécifique au chevauchement est quasi inexistant, quelle que soit l'architecture. Winston recommande d'avancer sur le pipeline unifié d'abord (valeur sûre, indépendante du chevauchement) et de reporter YOLO/grid-based tant qu'une vraie stratégie de données (augmentation synthétique par composition) n'est pas en place. Recommandation soumise, pas encore confirmée par Aymeric.
 - **2026-07-14 (suite)** — Aymeric confirme la recommandation (pipeline unifié d'abord). Nom retenu : "JAX Single-Pass". Aymeric propose de simplifier l'input à 224×224 (abandon du full HD) mais s'interroge sur la perte de détail que ça impliquerait. Relaie une technique de crop&resize par grid-sample différentiable (bilinéaire, coordonnées continues). Winston valide la technique (`jax.scipy.ndimage.map_coordinates`) mais clarifie qu'elle ne résout pas le besoin d'une image source haute résolution — elle change seulement le mécanisme de lecture, pas la question de résolution. Nouvelle question bloquante posée : résolution native réelle des vidéos sources (non fixée dans le code, dépend du fichier). `vmap` sur 20 slots de boîtes confirmé comme bon pattern.
 - **2026-07-14 (suite)** — Aymeric fixe la résolution canonique à 1920×1080 grayscale (normalisation python en amont si besoin) et propose une structure à deux branches (224×224 pour la détection, pleine résolution conservée pour le crop) — résout élégamment le besoin de deux images identifié précédemment. Premier schéma ASCII fourni, mélangeant deux options (upgrade backbone/FPN + Top-K sur heatmap), reconnu par Aymeric. Winston sépare les deux et recommande de ne retenir que le Top-K sur heatmap (style CenterNet, anchor-free) — élimine `findContours`, répare structurellement la fusion des boîtes, potentiellement plus économe en données que le YOLO à ancres testé historiquement. Backbone/FPN reporté (pas de problème mesuré qui le justifie). Diagramme mermaid produit.
+- **2026-07-15** — Aymeric demande un tri d'impact codebase (40 fichiers `.py`) avant de s'engager plus loin — fait, avec vérification ciblée de deux points incertains (`data_management.py` attend une clé `'masks'`, `main.py` a un routage `task_type` simple). Aymeric relit ensuite le diagramme et repère deux trous réels : le masque de validité et les coordonnées de boîte n'étaient pas portés jusqu'à la sortie finale — corrigé. Puis question sur l'entraînement : confirmé que le détecteur s'entraîne à 224×224 seul, aucun dataset full-HD nécessaire — exactement le principe déjà utilisé aujourd'hui (`inference_utils.py:330`, resize du masque vers l'original après inférence, pas avant). Ajout d'une étape `RESCALE` manquante dans le diagramme (224×224 → repère original, symétrique du `RESIZE` d'entrée) et clarification du principe structurant : le graphe n'est unifié qu'à l'inférence, l'entraînement reste modulaire. Nouveau risque de parité identifié côté resize d'entrée détection (PIL/LANCZOS actuel vs méthode JAX à choisir).
