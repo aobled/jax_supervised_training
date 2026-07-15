@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph TRAIN["Entraînement classification — séparé, déjà existant, inchangé"]
+        DS["Dataset équilibré<br/>~5000 images / classe"]
+        DS --> CLF["ClassifierNet<br/>(sophisticated_cnn_128_plus)"]
+        CLF --> PKL["classifier.pkl"]
+        PKL --> FROZEN["Paramètres figés"]
+    end
+
+    subgraph DETECT["JAX Single-Pass — détecteur (nouveau, à concevoir)"]
+        IMG["Image 1920x1080 grayscale<br/>résolution canonique<br/>(normalisation python en amont si besoin)"]
+        IMG --> RESIZE["Resize déterministe fixe<br/>(pas une couche apprise)"]
+        RESIZE --> ENC["Encoder-decoder détection<br/>(même famille que l'UNet actuel —<br/>pas de backbone/FPN pour l'instant)"]
+        ENC --> HM["Heatmap centres + régression tailles<br/>(remplace le masque de segmentation)"]
+        HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
+        PEAK --> TOPK["Top-K = 20 boxes<br/>+ scores détection<br/>+ masque slots invalides<br/>(conf_threshold, même principe<br/>que decode_segmentation_and_detect)"]
+        IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
+        TOPK --> CROP
+        CROP --> BATCH["Batch 20x128x128"]
+        BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
+        FROZEN -.params figés.-> CLFCALL
+        CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
+        TOPK -."boxes + scores détection<br/>+ masque validité".-> OUT
+        CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
+    end

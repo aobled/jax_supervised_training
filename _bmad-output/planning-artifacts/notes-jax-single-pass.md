@@ -123,15 +123,22 @@ flowchart TB
         RESIZE --> ENC["Encoder-decoder détection<br/>(même famille que l'UNet actuel —<br/>pas de backbone/FPN pour l'instant)"]
         ENC --> HM["Heatmap centres + régression tailles<br/>(remplace le masque de segmentation)"]
         HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
-        PEAK --> TOPK["Top-K = 20 boxes<br/>+ masque slots invalides"]
+        PEAK --> TOPK["Top-K = 20 boxes<br/>+ scores détection<br/>+ masque slots invalides<br/>(conf_threshold, même principe<br/>que decode_segmentation_and_detect)"]
         IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
         TOPK --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
         FROZEN -.params figés.-> CLFCALL
-        CLFCALL --> OUT["Classes finales + scores"]
+        CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
+        TOPK -."boxes + scores détection<br/>+ masque validité".-> OUT
+        CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
     end
 ```
+
+**Précision (2026-07-15, question d'Aymeric)** : le diagramme initial ne faisait pas ressortir explicitement en sortie (a) le masque de validité des 20 slots et (b) les coordonnées de boîte — corrigé ci-dessus.
+
+- **Slots vides** : le classifieur reçoit toujours un crop 128×128 (même du bruit/fond) et retourne toujours une distribution softmax pleine — il ne peut pas "retourner 0". La distinction slot réel/vide se fait via un **masque de validité séparé**, dérivé du score de détection (confiance du pic sur le heatmap) comparé à un seuil — même principe que `conf_threshold=0.3` déjà utilisé dans `decode_segmentation_and_detect` aujourd'hui, juste calculé par pic plutôt que par aire de contour. Ce masque doit être porté jusqu'à la sortie finale, pas seulement consommé en interne pour sélectionner quoi recadrer.
+- **Coordonnées de boîte** : conservées en sortie finale (pas seulement consommées par l'étape de crop) — nécessaire pour tout usage pratique en aval (dessin sur vidéo dans `bounding_boxes_with_classification_from_video_generation.py`, notamment).
 
 ## Risques identifiés
 
