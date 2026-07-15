@@ -143,6 +143,13 @@ DATASET_CONFIGS = {
         "mean_std_path": f"{DATA_ROOT}/chunks/classification_64x64/dataset_classification_64x64_meanstd.npz",
 
         # === Modèle ===
+        # ❌ TESTÉ ET REJETÉ (2026-07-15) : -6.1 pts d'accuracy globale vs 128x128 (0.8910 vs 0.9522,
+        # archive/training_classification_log_64x4.txt vs training_classification_log_128x4_mixup_smoothing.txt).
+        # Dégradation sur les 32 classes sans exception (-3.6 à -10.1 pts F1), pas concentrée sur les paires
+        # visuellement proches comme attendu - pire cas sr71 (-10.1), probablement aggravé par son faible
+        # volume de données (1650 images, la classe la plus petite). Courbe d'entraînement propre (pas un
+        # problème de réglage) : 128x128 reste la résolution de production. Config/modèle conservés pour
+        # trace, ne pas relancer sans nouvelle raison.
         "model_name": "sophisticated_cnn_64_plus",
         "loss_method": "focal_loss",
         "loss_params": {"gamma": 2.0},
