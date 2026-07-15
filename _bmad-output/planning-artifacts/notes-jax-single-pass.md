@@ -145,6 +145,31 @@ flowchart TB
 
 Décision (2026-07-14, Aymeric) : nouvelle version du script de préparation de dataset détection, **dédiée à la nouvelle tête par point central, bien séparée du fichier actuel** (`fighterjet_detection_dataset_tools.py`, qui continue de fonctionner pour l'approche segmentation existante — aucune modification du chemin qui marche). Rôle : remplacer la boucle de synthèse de masque (ellipses) par une boucle de génération de cibles heatmap+taille, à partir des mêmes `raw_boxes` sources. Probablement plus simple que le fichier actuel, pas juste différent (pas de dessin de masque à produire).
 
+## Triage d'impact codebase (2026-07-15) — point de départ pour `bmad-architecture`
+
+40 fichiers `.py` au total (18 racine + 22 `tools/`). Pas de passe aveugle exhaustive — triage ciblé, à approfondir lors de l'architecture spine formelle (lecture complète des fichiers UPDATE, pas juste la liste).
+
+**Directement concernés (changement nécessaire) :**
+- `model_library.py` — nouvelle classe de modèle (encoder-decoder + tête heatmap/taille)
+- `task_strategies.py` — nouvelle stratégie ou extension de `DetectionStrategy` (décodage Top-K)
+- `loss_functions.py` — nouvelles fonctions de perte (heatmap focal loss + régression taille) — rien d'existant à réutiliser (`compute_grid_loss` supprimé comme code mort à l'Epic 3)
+- `dataset_configs.py` — nouvelle entrée de config
+- `inference_utils.py` — `decode_segmentation_and_detect(_batch)`/`non_max_suppression` obsolètes pour ce pipeline ; nouvelles fonctions crop&resize + extraction de pics à ajouter
+- `data_management.py` — **vérifié** (ligne 300) : le chargeur de chunks détection attend une clé `'masks'` explicite dans les `.npz`. Cassera tel quel avec le nouveau format (heatmap+tailles) — branche/variante nécessaire.
+- `fighterjet_detection_dataset_tools_v2.py` — nouveau fichier déjà planifié
+- `bounding_boxes_with_classification_from_video_generation.py` et `tools/bounding_boxes_with_classification_from_images_generation.py` — orchestration crop+classify actuelle, se simplifie radicalement une fois le graphe unifié
+
+**À vérifier/adapter (probablement mineur) :**
+- `main.py` — routage `task_type` (**vérifié** lignes 113/124/132, simple `if/elif`) — ajout contenu
+- `trainer.py` — devrait fonctionner tel quel si la nouvelle stratégie respecte l'interface `TaskStrategy`, à confirmer
+- `heatmap_generation.py`, `heatmap_contouring.py` — scripts de debug/visu liés à la sortie masque actuelle, pas cœur de pipeline
+- `reporting.py` — `report_method="segmentation_heatmap"` actuel, nouvelle méthode à envisager plus tard
+
+**Pas concernés (à ne pas toucher) :**
+- `fighterjet_classification_dataset_tools.py`, `cifar10_classification_dataset_tools.py`, `check_image_channels.py`, `checkpoint_manager.py`, `utils.py`
+- Tous les convertisseurs `tools/convert_*.py` — produisent le JSON `annotation.bbox` déjà confirmé comme source de vérité, aucun changement de format en amont prévu
+- Autres scripts `tools/` (audit, dédoublonnage, inspection pickle, etc.) — sans lien avec l'architecture du modèle
+
 ## Plan de validation proposé (pas encore lancé)
 
 Dans le même esprit que les runs CIFAR10 de cette session — valider les inconnues les moins chères avant d'investir dans le code :
