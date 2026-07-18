@@ -12,7 +12,7 @@ os.environ.setdefault(
 
 # Ajouter le répertoire parent en PRIORITÉ absolue (index 0) pour forcer Python
 # à utiliser le model_library.py de jax_supervised_training (et non celui de JAX_Classification si exécuté depuis l'autre dossier)
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Remplace YOLO import par JAX/Flax helpers si nécessaire
 # from ultralytics import YOLO  <-- REMOVED
@@ -63,6 +63,11 @@ except Exception as e:
     print(f"❌ Erreur chargement config: {e}")
     sys.exit(1)
 
+# Seuil de detection JAX_DETECTOR (meme source que celui applique a valid_mask dans
+# build_single_pass_predict_fn) - recupere ici uniquement pour recalibrer la colorimetrie
+# du rendu heatmap (voir _remap_score_for_colormap), sans dupliquer sa valeur en dur.
+DETECTION_SCORE_THRESHOLD = get_dataset_config("JAX_DETECTOR")["detection_score_threshold"]
+
 
 
 
@@ -81,50 +86,94 @@ def warmup_jit_predictors(batched_predict_fn, batch_size):
 
 
 def _draw_score_weighted_ellipse(heatmap_2d, center, semi_axes, score):
-    """Remplit une ellipse pondérée par `score`, centrée sur `center`=(cx,cy), de
-    demi-axes `semi_axes`=(a,b).
+    """Remplit une ellipse à falloff gaussien pondéré par `score`, centrée sur
+    `center`=(cx,cy), de demi-axes `semi_axes`=(a,b).
 
     Dimensionnée pour ÉPOUSER l'étendue de la boîte (pas la formule CornerNet
     `_gaussian_radius` de `detection_target_encoding.py`/Story 7.1, essayée d'abord et
     écartée après contrôle visuel : elle produit un pic étroit adapté à l'entraînement
     d'un heatmap CenterNet, pas au rendu "masque plein" attendu ici, cf.
-    `archive/old video detection render.png`). Écrit dans un patch local (ROI autour du
-    centre, tronqué aux bords de l'image) puis blend max avec l'existant - jamais de
-    plein-cadre alloué par détection. Utilisée uniquement pour la visualisation (Story
-    8.7/8.9, quadrants bas-gauche/haut-droit), jamais sur le chemin d'inférence critique.
+    `archive/old video detection render.png`). Intensité maximale (`score`) au centre,
+    décroissance gaussienne (`exp(-4*r²)`, r=distance elliptique normalisée) vers le
+    bord - remplace le remplissage plat initial (Story 8.7/8.9), qui rendait chaque
+    détection comme un disque à teinte uniforme plutôt qu'une vraie "chaleur" (retour
+    utilisateur 2026-07-19). Écrit dans un patch local (ROI autour du centre, tronqué
+    aux bords de l'image) puis blend max avec l'existant - jamais de plein-cadre alloué
+    par détection. Utilisée uniquement pour la visualisation, jamais sur le chemin
+    d'inférence critique.
     """
     h, w = heatmap_2d.shape[:2]
-    cx, cy = int(center[0]), int(center[1])
-    a, b = max(int(semi_axes[0]), 1), max(int(semi_axes[1]), 1)
+    cx, cy = float(center[0]), float(center[1])
+    a, b = max(float(semi_axes[0]), 1.0), max(float(semi_axes[1]), 1.0)
 
-    x0, x1 = max(cx - a, 0), min(cx + a + 1, w)
-    y0, y1 = max(cy - b, 0), min(cy + b + 1, h)
+    x0, x1 = max(int(cx - a), 0), min(int(cx + a) + 1, w)
+    y0, y1 = max(int(cy - b), 0), min(int(cy + b) + 1, h)
     if x1 <= x0 or y1 <= y0:
         return  # boite hors image, rien a dessiner
 
-    patch = np.zeros((y1 - y0, x1 - x0), dtype=np.float32)
-    cv2.ellipse(patch, (cx - x0, cy - y0), (a, b), 0, 0, 360, float(score), thickness=-1)
+    ys, xs = np.mgrid[y0:y1, x0:x1]
+    r2 = ((xs - cx) / a) ** 2 + ((ys - cy) / b) ** 2  # 0 au centre, 1 sur le bord de l'ellipse
+    patch = (np.exp(-4.0 * r2) * float(score)).astype(np.float32)
+
     region = heatmap_2d[y0:y1, x0:x1]
     np.maximum(region, patch, out=region)
 
 
-def _render_synthetic_heatmap(boxes, detection_scores, valid_indices, canvas_size):
-    """Reconstruit une carte de chaleur visuelle à partir des détections finales
-    (`boxes`/`detection_scores`, déjà exposées par le contrat de sortie fixe de
-    `build_single_pass_predict_fn`, AD-15/AC3 Story 8.6 - inchangé) plutôt que
-    d'exposer la carte dense interne du détecteur. Décidé avec l'utilisateur en
-    remplacement de l'affichage simplifié initial de la Story 8.7 (2026-07-18)."""
+def _render_synthetic_heatmap(boxes, detection_scores, indices, canvas_size):
+    """Reconstruit une carte de chaleur visuelle à partir des boîtes/scores déjà exposés
+    par le contrat de sortie fixe de `build_single_pass_predict_fn` (AD-15/AC3 Story 8.6 -
+    inchangé) plutôt que d'exposer la carte dense interne du détecteur. Décidé avec
+    l'utilisateur en remplacement de l'affichage simplifié initial de la Story 8.7
+    (2026-07-18).
+
+    `indices` : ensemble d'indices à dessiner - PAS forcément `valid_mask` seul. Les 20
+    slots de `_top_k_boxes` (Story 8.3) sont déjà tous calculés avant filtrage par
+    `detection_score_threshold` (confirmé lors du diagnostic threshold_sensitivity,
+    2026-07-18) ; appeler cette fonction avec tous les indices (0..19) plutôt que
+    `valid_mask` seul restaure la valeur exploratoire de l'ancien rendu heatmap dense
+    UNet (voir "hésitations" sous le seuil, retour utilisateur 2026-07-19)."""
     h, w = canvas_size
     heatmap = np.zeros((h, w), dtype=np.float32)
-    for idx in valid_indices:
+    for idx in indices:
+        score = float(detection_scores[idx])
+        if score < 0.02:
+            continue  # quasi-invisible une fois recolorise, evite le cout de rendu pour rien
         x1, y1, x2, y2 = boxes[idx]
         box_w, box_h = x2 - x1, y2 - y1
         if box_w <= 0 or box_h <= 0:
             continue
         cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         semi_axes = (box_w / 2.0, box_h / 2.0)
-        _draw_score_weighted_ellipse(heatmap, (cx, cy), semi_axes, float(detection_scores[idx]))
+        _draw_score_weighted_ellipse(heatmap, (cx, cy), semi_axes, score)
     return heatmap
+
+
+def _remap_score_for_colormap(heatmap, threshold, confirmed_band_start=0.5):
+    """Réétire la plage de scores utile avant application de la palette JET, pour que
+    tout le spectre bleu->rouge soit exploité au lieu de sa seule moitié basse (les
+    scores réels se concentrent autour de 0.5-0.75 - retour utilisateur 2026-07-19 :
+    rendu "coincé entre le vert et le bleu clair").
+
+    Deux bandes distinctes de part et d'autre de `threshold` (= `detection_score_threshold`,
+    JAX_DETECTOR) :
+    - [0, threshold)   -> [0, confirmed_band_start)          : candidats sous le seuil,
+      tons froids (bleu/cyan) - "le modèle hésite ici".
+    - [threshold, 1.0] -> [confirmed_band_start, 1.0]         : détections confirmées,
+      tons chauds (vert->rouge). confirmed_band_start=0.5 (pas 0.35) : JET(0.35) reste
+      cyan/bleu clair, pas assez distinct du fond - retour utilisateur 2026-07-19 (2e
+      passe) : les détections confirmées restaient trop peu visibles. JET(0.5) est vert
+      franc, garantit que toute détection confirmée est au moins verte.
+
+    Le fond (heatmap==0, aucune détection) reste à 0 dans les deux cas -> inchangé,
+    toujours JET(0)."""
+    threshold = max(float(threshold), 1e-6)
+    below = heatmap < threshold
+    remapped = np.empty_like(heatmap)
+    remapped[below] = (heatmap[below] / threshold) * confirmed_band_start
+
+    above_span = max(1.0 - threshold, 1e-6)
+    remapped[~below] = confirmed_band_start + (heatmap[~below] - threshold) / above_span * (1.0 - confirmed_band_start)
+    return remapped
 
 
 def build_quadrant_canvas(target_frame, results, frame_idx, config):
@@ -148,6 +197,14 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     (l'ancien chemin recevait le crop déjà extrait) - re-extrait ici via un simple
     slicing sur les boîtes rescalées, uniquement pour l'affichage, indépendant du chemin
     d'inférence JAX (qui ne réexpose jamais ses crops internes).
+
+    Bas-gauche et haut-droit partagent la MEME heatmap exploratoire (tous les candidats,
+    pas seulement `valid_mask`) depuis le 2026-07-19 (2e retour utilisateur - la version
+    "haut-droit = confirmees seules uniquement" du 2026-07-19 matin retirait un vrai facteur
+    d'analyse : impossible de voir les zones "presque detectees" superposees sur l'image
+    reelle). Les boites vertes/rouges restent, elles, restreintes a `valid_indices` - seul
+    le fond de chaleur redevient partage, un seul calcul/colorisation reutilise pour les
+    deux quadrants (plus rapide que les 2 passages separes de la version precedente).
     """
     canvas = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH, 3), dtype=np.uint8)
     h_orig, w_orig = target_frame.shape[:2]
@@ -157,19 +214,22 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     classes = np.asarray(results["classes"][frame_idx])
     class_scores = np.asarray(results["class_scores"][frame_idx])
     detection_scores = np.asarray(results["detection_scores"][frame_idx])
-    valid_indices = np.where(valid_mask)[0]  # valid_mask seule autorité (AD-15/AC3 8.6)
+    valid_indices = np.where(valid_mask)[0]  # valid_mask seule autorité (AD-15/AC3 8.6) - boites uniquement
+    all_indices = np.arange(detection_scores.shape[0])  # 20 slots bruts - heatmap partagee, voir docstring
 
     # 1. Top-Left: Original
     tl_img = cv2.resize(target_frame, (960, 540))
     canvas[0:540, 0:960] = tl_img
 
-    # 2. Bottom-Left: heatmap synthetique (blobs gaussiens ponderes par le score de
-    # detection, derives des boites finales - voir docstring). Meme colorisation JET que
-    # l'ancien rendu.
+    # 2/3. Heatmap synthetique EXPLORATOIRE (tous les candidats bruts, gaussiens ponderes
+    # par score - voir docstring), calculee UNE SEULE fois et partagee entre le quadrant
+    # bas-gauche (fond plein) et l'overlay haut-droit (masque + alpha).
     synthetic_heatmap = _render_synthetic_heatmap(
-        boxes, detection_scores, valid_indices, (CANVAS_HEIGHT, CANVAS_WIDTH)
+        boxes, detection_scores, all_indices, (CANVAS_HEIGHT, CANVAS_WIDTH)
     )
-    hm_vis = (np.clip(synthetic_heatmap, 0.0, 1.0) * 255).astype(np.uint8)
+    hm_vis = (np.clip(
+        _remap_score_for_colormap(synthetic_heatmap, DETECTION_SCORE_THRESHOLD), 0.0, 1.0
+    ) * 255).astype(np.uint8)
     hm_color = cv2.applyColorMap(hm_vis, cv2.COLORMAP_JET)
     bl_img = cv2.resize(hm_color, (960, 540))
     canvas[540:1080, 0:960] = bl_img
@@ -183,7 +243,7 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     heatmap_mask = cv2.resize(
         (hm_vis > 40).astype(np.uint8), (960, 540), interpolation=cv2.INTER_NEAREST
     )
-    heatmap_color_tr = bl_img.copy()
+    heatmap_color_tr = bl_img.copy()  # meme heatmap partagee que le quadrant bas-gauche, voir docstring
     heatmap_color_tr[heatmap_mask == 0] = 0
     cv2.addWeighted(tr_img, 1.0, heatmap_color_tr, 0.45, 0, dst=tr_img)
 

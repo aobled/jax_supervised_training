@@ -386,7 +386,12 @@ DATASET_CONFIGS = {
         # jamais une constante privee dupliquee). Valeur de depart alignee sur le
         # conf_threshold=0.3 deja utilise par decode_segmentation_and_detect
         # (inference_utils.py) pour le pipeline actuel - pas encore tunee pour ce format.
-        "detection_score_threshold": 0.3,
+        # Abaisse a 0.2 le 2026-07-19 (retour utilisateur : avions petits/lointains sur fond
+        # de ville non confirmes malgre un vrai pic de score visible dans le heatmap
+        # exploratoire bas-gauche) - le diagnostic threshold_sensitivity (archive/) avait
+        # deja verifie zero faux positif sur les images annotees jusqu'a 0.1 ; 0.2 reste une
+        # marge prudente, facilement reversible si besoin.
+        "detection_score_threshold": 0.2,
 
         # === Augmentation de Données ===
         # Copiée telle quelle de FIGHTERJET_DETECTION - point de départ raisonnable, pas
