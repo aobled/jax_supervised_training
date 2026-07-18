@@ -180,7 +180,7 @@ Décision (2026-07-14, Aymeric) : nouvelle version du script de préparation de 
 **Directement concernés — brique entraînement `JAX_DETECTOR` (nom de config retenu le 2026-07-15) :**
 - `model_library.py` — nouvelle classe de modèle (encoder-decoder + tête heatmap/taille)
 - `task_strategies.py` — nouvelle stratégie ou extension de `DetectionStrategy` (loss heatmap+taille, décodage Top-K)
-- `loss_functions.py` — nouvelles fonctions de perte (heatmap focal loss + régression taille) — rien d'existant à réutiliser (`compute_grid_loss` supprimé comme code mort à l'Epic 3)
+- `loss_functions.py` — nouvelles fonctions de perte (heatmap focal loss + régression taille) — rien d'existant à réutiliser (`compute_grid_loss` **correction 2026-07-16** : pas supprimé à l'Epic 3 comme affirmé ici à tort — toujours présent et importé par `task_strategies.py`, mais inatteignable en pratique par les configs actuelles, voir `deferred-work.md`)
 - `dataset_configs.py` — nouvelle entrée `JAX_DETECTOR` (config d'entraînement classique, un modèle, un dataset — rentre dans le moule existant)
 - `data_management.py` — **vérifié** (ligne 300) : le chargeur de chunks détection attend une clé `'masks'` explicite dans les `.npz`. Cassera tel quel avec le nouveau format (heatmap+tailles) — branche/variante nécessaire.
 - `fighterjet_detection_dataset_tools_v2.py` — nouveau fichier déjà planifié

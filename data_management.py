@@ -38,6 +38,8 @@ from PIL import Image
 import tqdm
 from typing import Tuple, Optional
 
+from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
+
 
 class ChunkManager:
     """
@@ -415,6 +417,188 @@ class DetectionDataset:
         val_ds = self.create_tf_dataset('val', augment=False)
         return train_ds, val_ds
 
+
+class CenterNetDetectionDataset:
+    """
+    Gestionnaire de dataset pour la détection JAX_DETECTOR (heatmap+taille, AD-9/AD-17/AD-18).
+    Charge les chunks générés par fighterjet_detection_dataset_tools_v2.py (Story 7.4).
+    Classe séparée de DetectionDataset (AD-17) - ne modifie ni n'étend celle-ci.
+    """
+    def __init__(self, output_prefix: str, image_size: tuple = (224, 224), batch_size: int = 16, grayscale: bool = False, augmentation_params: dict = None):
+        self.output_prefix = output_prefix
+        self.image_size = image_size
+        self.batch_size = batch_size
+        self.grayscale = grayscale
+        self.augmentation_params = augmentation_params if augmentation_params is not None else {}
+
+        # Repérer les chunks - même pattern que DetectionDataset, fonctionne quel que soit
+        # le préfixe littéral choisi par la Story 7.4 tant que output_prefix correspond
+        # (dépendance sur la config JAX_DETECTOR, Story 7.7)
+        self.train_chunks = sorted(glob.glob(f"{output_prefix}_train_chunk*.npz"))
+        self.val_chunks = sorted(glob.glob(f"{output_prefix}_val_chunk*.npz"))
+
+        mode_str = "Grayscale (1 canal)" if self.grayscale else "RGB (3 canaux)"
+        print(f"📦 CenterNet Detection Dataset: {len(self.train_chunks)} train chunks, {len(self.val_chunks)} val chunks [{mode_str}]")
+
+    def create_tf_dataset(self, split='train', augment=True):
+        """
+        Crée un dataset TensorFlow qui retourne (image, {HEATMAP_KEY: heatmap, SIZE_KEY: size})
+        Image: (image_size[0], image_size[1], C) où C=1 (grayscale) ou 3 (RGB)
+        heatmap: (image_size[0], image_size[1], 1) ; size: (image_size[0], image_size[1], 2)
+        """
+        chunks = self.train_chunks if split == 'train' else self.val_chunks
+        if not chunks:
+            error_msg = (
+                f"\n❌ ERREUR: Chunks introuvables pour la détection JAX_DETECTOR !\n"
+                f"   Je m'attendais à trouver {self.output_prefix}_[split]_chunk*.npz\n"
+                f"💡 LANCEZ D'ABORD : python fighterjet_detection_dataset_tools_v2.py"
+            )
+            print(error_msg)
+            exit(1)
+
+        def gen():
+            for chunk_path in chunks:
+                with np.load(chunk_path) as data:
+                    images = data['images']            # (N, H, W, C)
+                    heatmaps = data[HEATMAP_KEY]        # (N, H, W, 1)
+                    sizes = data[SIZE_KEY]              # (N, H, W, 2)
+
+                    for img, heatmap, size in zip(images, heatmaps, sizes):
+                        yield img, {HEATMAP_KEY: heatmap, SIZE_KEY: size}
+
+        num_channels = 1 if self.grayscale else 3
+        output_signature = (
+            tf.TensorSpec(shape=self.image_size + (num_channels,), dtype=tf.float32),
+            {
+                HEATMAP_KEY: tf.TensorSpec(shape=self.image_size + (1,), dtype=tf.float32),
+                SIZE_KEY: tf.TensorSpec(shape=self.image_size + (2,), dtype=tf.float32),
+            }
+        )
+
+        ds = tf.data.Dataset.from_generator(gen, output_signature=output_signature)
+
+        if split == 'train' and augment:
+            ds = ds.shuffle(1000)
+
+            def augment_fn(img, targets):
+                heatmap = targets[HEATMAP_KEY]
+                size = targets[SIZE_KEY]
+
+                # --- 1. Flips (Vertical & Horizontal) --- pas d'interpolation, sûr sur les 3 tenseurs
+                flip_v_enabled = self.augmentation_params.get("flip_v", False)
+                if flip_v_enabled:
+                    do_flip_v = tf.random.uniform([]) > 0.5
+                    img = tf.cond(do_flip_v, lambda: tf.image.flip_up_down(img), lambda: img)
+                    heatmap = tf.cond(do_flip_v, lambda: tf.image.flip_up_down(heatmap), lambda: heatmap)
+                    size = tf.cond(do_flip_v, lambda: tf.image.flip_up_down(size), lambda: size)
+
+                flip_h_enabled = self.augmentation_params.get("flip_h", False)
+                if flip_h_enabled:
+                    do_flip_h = tf.random.uniform([]) > 0.5
+                    img = tf.cond(do_flip_h, lambda: tf.image.flip_left_right(img), lambda: img)
+                    heatmap = tf.cond(do_flip_h, lambda: tf.image.flip_left_right(heatmap), lambda: heatmap)
+                    size = tf.cond(do_flip_h, lambda: tf.image.flip_left_right(size), lambda: size)
+
+                # --- 2. Translation (Shift) --- décalage entier pad+crop, pas d'interpolation
+                trans_factor = self.augmentation_params.get("translation_factor", 0.0)
+                if trans_factor > 0.0:
+                    do_translate = tf.random.uniform([]) > 0.5
+                    shift_x = tf.random.uniform([], -trans_factor, trans_factor)
+                    shift_y = tf.random.uniform([], -trans_factor, trans_factor)
+
+                    img_h = tf.shape(img)[0]
+                    img_w = tf.shape(img)[1]
+
+                    def apply_translation(t, sx, sy, pad_mode):
+                        px = tf.cast(sx * tf.cast(img_w, tf.float32), tf.int32)
+                        py = tf.cast(sy * tf.cast(img_h, tf.float32), tf.int32)
+
+                        pad_h = tf.cast(trans_factor * tf.cast(img_h, tf.float32), tf.int32) + 1
+                        pad_w = tf.cast(trans_factor * tf.cast(img_w, tf.float32), tf.int32) + 1
+
+                        padded = tf.pad(t, paddings=[[pad_h, pad_h], [pad_w, pad_w], [0, 0]], mode=pad_mode)
+                        start_y = pad_h - py
+                        start_x = pad_w - px
+                        return tf.image.crop_to_bounding_box(padded, start_y, start_x, img_h, img_w)
+
+                    img = tf.cond(do_translate, lambda: apply_translation(img, shift_x, shift_y, 'REFLECT'), lambda: img)
+                    # Heatmap/size : fond noir (CONSTANT) - cohérent avec l'invariant "size non-nul
+                    # seulement au centre" (le padding introduit du fond, jamais une fausse valeur)
+                    heatmap = tf.cond(do_translate, lambda: apply_translation(heatmap, shift_x, shift_y, 'CONSTANT'), lambda: heatmap)
+                    size = tf.cond(do_translate, lambda: apply_translation(size, shift_x, shift_y, 'CONSTANT'), lambda: size)
+
+                # --- 3. Zoom (Scale) --- interpolation bilinéaire OK pour l'image seule ;
+                # heatmap/size doivent utiliser method='nearest' pour préserver les valeurs
+                # exactes (pic heatmap == 1.0, cellule de taille ponctuelle) - une interpolation
+                # bilinéaire romprait silencieusement ces deux invariants (Story 7.1/7.3).
+                zoom_factor = self.augmentation_params.get("zoom_factor", 0.0)
+                if zoom_factor > 0.0:
+                    do_zoom = tf.random.uniform([]) > 0.5
+                    scale = tf.random.uniform([], 1.0 - zoom_factor, 1.0 + zoom_factor)
+
+                    def _effective_zoom_scale(cur_scale):
+                        # crop_frac est clampe a [0.1, 1.0] (voir _zoom_crop_and_resize) - pour
+                        # cur_scale < 1 (zoom arriere), le clamp a 1.0 annule tout crop reel,
+                        # l'image reste inchangee malgre un cur_scale != 1.0. Le facteur de zoom
+                        # REELLEMENT applique est donc 1/crop_frac (apres clamp), pas cur_scale
+                        # brut - sinon la taille serait rescalee alors que l'image, elle, ne
+                        # bouge pas (bug trouve par la revue independante de cette story).
+                        crop_frac = tf.clip_by_value(1.0 / cur_scale, 0.1, 1.0)
+                        return 1.0 / crop_frac
+
+                    def _zoom_crop_and_resize(t, cur_scale, method):
+                        crop_frac = tf.clip_by_value(1.0 / cur_scale, 0.1, 1.0)
+                        t_cropped = tf.image.central_crop(t, crop_frac)
+                        t_h_local = tf.shape(t)[0]
+                        t_w_local = tf.shape(t)[1]
+                        target_shape = tf.cast([t_h_local, t_w_local], tf.int32)
+                        return tf.image.resize(t_cropped, target_shape, method=method)
+
+                    def apply_zoom_size(s, cur_scale):
+                        # La carte de taille porte des magnitudes en pixels, pas seulement une
+                        # position - le resize nearest ne fait que redéplacer la valeur stockée
+                        # sans la recalculer. Après zoom, l'objet occupe plus/moins de pixels
+                        # dans l'image zoomée : il faut donc aussi rescaler la valeur elle-même
+                        # par le facteur de zoom REELLEMENT applique (voir _effective_zoom_scale),
+                        # sinon la carte de taille devient fausse silencieusement.
+                        s_resized = _zoom_crop_and_resize(s, cur_scale, 'nearest')
+                        return s_resized * _effective_zoom_scale(cur_scale)
+
+                    img = tf.cond(do_zoom, lambda: _zoom_crop_and_resize(img, scale, 'bilinear'), lambda: img)
+                    heatmap = tf.cond(do_zoom, lambda: _zoom_crop_and_resize(heatmap, scale, 'nearest'), lambda: heatmap)
+                    size = tf.cond(do_zoom, lambda: apply_zoom_size(size, scale), lambda: size)
+
+                # --- 4. Augmentation couleur (uniquement sur l'image) ---
+                bright_delta = self.augmentation_params.get("brightness_delta", 0.0)
+                if bright_delta > 0.0:
+                    img = tf.image.random_brightness(img, bright_delta)
+
+                cont_factor = self.augmentation_params.get("contrast_factor", 0.0)
+                if cont_factor > 0.0:
+                    lower_cont = 1.0 - cont_factor
+                    lower_cont = max(0.1, lower_cont)
+                    upper_cont = 1.0 + cont_factor
+                    img = tf.image.random_contrast(img, lower_cont, upper_cont)
+
+                # Filet de sécurité : le heatmap reste borné [0,1] (déjà le cas par construction,
+                # cohérent avec DetectionDataset.clip_by_value sur son masque). JAMAIS appliqué à
+                # `size` (Task 4bis) - la carte de taille porte des magnitudes en pixels, pas des
+                # valeurs [0,1] ; un clip [0,1] écraserait silencieusement tout le signal de taille.
+                heatmap = tf.clip_by_value(heatmap, 0.0, 1.0)
+
+                return img, {HEATMAP_KEY: heatmap, SIZE_KEY: size}
+
+            ds = ds.map(augment_fn)
+
+        ds = ds.batch(self.batch_size, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+        return ds
+
+    def get_dataset(self):
+        train_ds = self.create_tf_dataset('train', augment=True)
+        val_ds = self.create_tf_dataset('val', augment=False)
+        return train_ds, val_ds
+
+
 def get_datasets(config: dict, backend_config: dict) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
     """
     Fonction factory unifiée pour charger les datasets selon le type de tâche.
@@ -457,8 +641,24 @@ def get_datasets(config: dict, backend_config: dict) -> Tuple[tf.data.Dataset, t
         # Mode vérification avec epochs=0 géré au niveau de get_datasets
         if config.get("epochs", 1) == 0:
             print("✅ Mode vérification: epochs=0, vérification des chunks requise")
-        
+
         return train_ds, val_ds
-        
+
+    elif task_type == "detection_centernet":
+        dataset_manager = CenterNetDetectionDataset(
+            output_prefix=config["output_prefix"],
+            image_size=config["image_size"],
+            batch_size=backend_config["micro_batch_size"],
+            grayscale=config.get("grayscale", False),
+            augmentation_params=aug_params
+        )
+        train_ds = dataset_manager.create_tf_dataset('train', augment=True)
+        val_ds = dataset_manager.create_tf_dataset('val', augment=False)
+
+        if config.get("epochs", 1) == 0:
+            print("✅ Mode vérification: epochs=0, vérification des chunks requise")
+
+        return train_ds, val_ds
+
     else:
         raise ValueError(f"Task type inconnu: {task_type}")

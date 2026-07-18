@@ -55,6 +55,7 @@ class Trainer:
         
         # Extraire les paramètres backend-specific
         backend_config = config[backend]
+        self.backend_config = backend_config  # conserve pour create_train_state (warmup/decay_steps)
         self.micro_batch_size = backend_config["micro_batch_size"]
         self.accum_steps = backend_config["accum_steps"]
         self.learning_rate = backend_config["learning_rate"]
@@ -119,9 +120,13 @@ class Trainer:
         batch_stats = variables.get("batch_stats", {})
         
         # Schedule d'apprentissage dynamique
-        # Warmup et decay adaptés depuis le fichier de config selon la taille du dataset
-        warmup_steps = self.config.get("warmup_steps", 1200)
-        decay_steps = self.config.get("decay_steps", 6000)
+        # Warmup et decay adaptés depuis le fichier de config selon la taille du dataset.
+        # Nichés sous tpu/gpu (pas top-level) : ce sont des comptes de STEPS, qui dépendent
+        # du steps/epoch (donc du micro_batch_size, backend-specific) - contrairement à
+        # epochs/patience (comptes d'EPOCHS, backend-independants, restent top-level).
+        # (2026-07-18, migration - voir dataset_configs.py pour la justification complète)
+        warmup_steps = self.backend_config.get("warmup_steps", 1200)
+        decay_steps = self.backend_config.get("decay_steps", 6000)
         
         lr_schedule_type = self.config.get("lr_schedule", "cosine")
         if lr_schedule_type == "cosine":
@@ -251,7 +256,7 @@ class Trainer:
         for batch in batch_iterator:
             images_np, labels_np = batch
             images = jnp.array(images_np, dtype=self.dtype)
-            labels = jnp.array(labels_np) # dtype handles by strategy
+            labels = jax.tree_util.tree_map(jnp.array, labels_np) # dtype handles by strategy
             
             # Monitoring agressif de la RAM dans la boucle
             if PSUTIL_AVAILABLE and micro_count == 0 and nb_updates % 50 == 0:
@@ -360,7 +365,7 @@ class Trainer:
         for batch in batch_iterator:
             images_np, labels_np = batch
             images = jnp.array(images_np, dtype=self.dtype)
-            labels = jnp.array(labels_np) # Preprocessed by strategy
+            labels = jax.tree_util.tree_map(jnp.array, labels_np) # Preprocessed by strategy
             
             # Évaluation
             loss, acc = self._eval_step(self.state, images, labels, eval_rng)

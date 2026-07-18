@@ -82,8 +82,12 @@ DATASET_CONFIGS = {
             "learning_rate": 8e-3,     # 🔥 NOUVEAU: LR augmenté pour apprentissage plus agressif
             "weight_decay": 5e-5,      # ✅ Optimal trouvé
             "dropout_rate": 0.0,       # 🔥 NOUVEAU: Pas de dropout pour exploiter le potentiel
+            # warmup/decay_steps nichés ici (2026-07-18, migration structurelle) - meme
+            # micro_batch_size que gpu (128) donc memes valeurs, comportement inchange.
+            "warmup_steps": 1200,
+            "decay_steps": 6000,
         },
-        
+
         # === Hyperparamètres GPU ===
         "gpu": {
             "micro_batch_size": 128,   # ✅ Testé, fonctionne
@@ -91,15 +95,15 @@ DATASET_CONFIGS = {
             "learning_rate": 8e-4,     # 🔥 NOUVEAU: LR/10 pour GPU (augmenté aussi)
             "weight_decay": 5e-5,
             "dropout_rate": 0.0,       # 🔥 NOUVEAU: Pas de dropout pour GPU aussi
+            "warmup_steps": 1200,
+            "decay_steps": 6000,
         },
-        
+
         # === Entraînement ===
         "optimizer": "adamw",
         "lr_schedule": "cosine",
         "epochs": 40,              # 40
         "patience": 5,
-        "warmup_steps": 1200,      # Rendu explicite (était hérité du Trainer)
-        "decay_steps": 6000,       # Le LR chute vite et stagne à 0 pour fine-tuning après ~15 epochs
         "label_smoothing": 0.15,  # ✅ Validé 2026-07-14 (après fix task_strategies.py:110-118, ex-mort par if/elif) : combiné à mixup, 0.9521 val vs 0.9458 référence identique sans smoothing (+0.63pt, archive/training_classification_log_128x4_mixup_smoothing.txt)
         "mixup_alpha": 0.05,        # ✅ OPTIMAL: Mixup doux (meilleur compromis trouvé) - confirmé combinable avec label_smoothing (voir ci-dessus)
         
@@ -158,8 +162,16 @@ DATASET_CONFIGS = {
             "learning_rate": 4e-4,     # LR légèrement remonté
             "weight_decay": 5e-5,
             "dropout_rate": 0.0,
+            # (2026-07-18, migration structurelle) valeur preexistante deplacee telle
+            # quelle, PAS recalibree - decay_steps=22000 represente ~13.4 epochs reelles
+            # (210570 images // 128 = 1645 steps/epoch) plutot que les 8 epochs configures
+            # (config.epochs) ; ecart deja present avant cette session, laisse tel quel
+            # (fonctionne en pratique, hors perimetre de la demande utilisateur qui portait
+            # sur le decalage TPU/GPU, corrige cote gpu ci-dessous).
+            "warmup_steps": 400,
+            "decay_steps": 22000,
         },
-        
+
         # === Hyperparamètres GPU ===
         "gpu": {
             "micro_batch_size": 16,
@@ -167,16 +179,24 @@ DATASET_CONFIGS = {
             "learning_rate": 2e-4,
             "weight_decay": 5e-5,
             "dropout_rate": 0.05,
+            # decay_steps recalcule (2026-07-18) - le decalage preexistant signale lors de
+            # la migration structurelle est corrige ici, a la demande de l'utilisateur.
+            # micro_batch_size=16 volontairement INCHANGE (config de production, checkpoint
+            # deja entraine avec cette valeur - contrairement a JAX_DETECTOR, encore
+            # experimental, pas de raison de le remonter ici sans le demander explicitement).
+            # 210 570 images train (verifie sur disque, chunks/detection/, cette session)
+            # // 16 = 13160 steps/epoch reels x 8 epochs (config actuelle, inchangee) = 105280.
+            # warmup_steps garde a 400 en valeur brute (meme convention que JAX_DETECTOR :
+            # warmup_steps constant entre backends, seul decay_steps varie avec steps/epoch).
+            "warmup_steps": 400,
+            "decay_steps": 105280,
         },
-        
+
         # === Entraînement ===
         "optimizer": "adamw",
         "lr_schedule": "cosine",
         "epochs": 8,
-
         "patience": 5,
-        "warmup_steps": 400,           # Préchauffage rapide sur ~0.15 epoch
-        "decay_steps": 22000,          # Le LR chutera vers zéro autour de la fin de l'epoch 8
         
         # === Évaluation/Visualization ===
         "metric_method": "segmentation_iou",
@@ -228,9 +248,13 @@ DATASET_CONFIGS = {
             "weight_decay": 1e-4,
             "dropout_rate": 0.3,
             "label_smoothing": 0.0,
-            "mixup_alpha": 0.0
+            "mixup_alpha": 0.0,
+            # (2026-07-18, migration structurelle) valeur preexistante deplacee telle
+            # quelle. Pas de decay_steps historique (defaut Trainer 6000 s'applique
+            # toujours via backend_config.get(), inchange).
+            "warmup_steps": 500,
         },
-        
+
         # === Hyperparamètres GPU ===
         "gpu": {
             "micro_batch_size": 32,
@@ -239,17 +263,16 @@ DATASET_CONFIGS = {
             "weight_decay": 1e-4,
             "dropout_rate": 0.3,
             "label_smoothing": 0.0,
-            "mixup_alpha": 0.0
+            "mixup_alpha": 0.0,
+            "warmup_steps": 500,
         },
-        
+
         # === Entraînement ===
         "optimizer": "adamw",
         "lr_schedule": "cosine",
         "epochs": 30,
-
         "patience": 5,
-        "warmup_steps": 500,
-        
+
         "eval_use_subset": False, # On évalue sur tout
         "metric_method": "accuracy",
         "report_method": "lightcurves",
@@ -299,6 +322,10 @@ DATASET_CONFIGS = {
             "learning_rate": 1e-3,
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
+            # (2026-07-18, migration structurelle) meme micro_batch_size que tpu (128)
+            # donc memes valeurs, comportement inchange.
+            "warmup_steps": 200,
+            "decay_steps": 17595,  # 391 (steps/epoch à micro_batch_size=128) × 45 (epochs) - recalculer si l'un des deux change (cf. bug Epic 5 Addendum 3)
         },
 
         # === Hyperparamètres TPU ===
@@ -308,6 +335,8 @@ DATASET_CONFIGS = {
             "learning_rate": 1e-3,
             "weight_decay": 5e-5,
             "dropout_rate": 0.3,
+            "warmup_steps": 200,
+            "decay_steps": 17595,
         },
 
         # === Entraînement ===
@@ -315,8 +344,6 @@ DATASET_CONFIGS = {
         "lr_schedule": "cosine",
         "epochs": 45,          # 30 -> 45 (2026-07-14) : le levier qui compte vraiment - seul changement qui bat la référence v2 (0.8416 -> 0.8582)
         "patience": 8,  # 5 -> 8 : nécessaire pour laisser les 45 epochs se dérouler sans early-stop prématuré
-        "warmup_steps": 200,
-        "decay_steps": 17595,  # 391 (steps/epoch à micro_batch_size=128) × 45 (epochs) - recalculer si l'un des deux change (cf. bug Epic 5 Addendum 3)
         # PAS de mixup_alpha/label_smoothing : testés (v3 avec mixup=0.05 -> 0.8570, v4 +smoothing=0.15 -> 0.8534),
         # tous les deux sous la référence epochs-seul ci-dessus (0.8582) une fois isolés proprement du changement de batch/LR.
         # Le bug de code qui les rendait mutuellement exclusifs reste corrigé (task_strategies.py:110-118),
@@ -331,6 +358,148 @@ DATASET_CONFIGS = {
         # === Sauvegarde ===
         # Pas de checkpoint_path/training_state_path explicite : nommage dérivé de dataset_name (Story 5.0)
         "confusion_matrix_path": "confusion_matrix_cifar10.png",
+    },
+
+    "JAX_DETECTOR": {
+        # === CONFIG DETECTION D'AVIONS - CenterNet (heatmap+taille, AD-9/AD-17) ===
+        # Coexiste avec FIGHTERJET_DETECTION (approche masque, AD-20 non-régression) - ne la
+        # modifie pas, output_prefix pointe vers un répertoire distinct (chunks/jax_detector/,
+        # jamais chunks/detection/).
+        "task_type": "detection_centernet",
+
+        # === Données ===
+        "num_classes": 1,  # Detection mono-classe (Story 7.1)
+        "class_names": ['aircraft'],
+        # Le nom de base doit correspondre exactement au préfixe codé en dur dans
+        # fighterjet_detection_dataset_tools_v2.py (Story 7.4) pour que le glob de
+        # CenterNetDetectionDataset (Story 7.5) trouve les chunks.
+        "output_prefix": f"{DATA_ROOT}/chunks/jax_detector/jax_detector_targets",
+        # Pic memoire pendant la generation ~ chunk_size x 784 Ko x 2 (liste Python + tableau
+        # numpy empile simultanement, fighterjet_detection_dataset_tools_v2.py::_save_chunk_v2) -
+        # 3000 = ~4.5 Go, valide sur la machine locale (30 Go RAM + 2 Go swap). Recalculer avant
+        # d'augmenter sur un environnement avec plus de RAM (ex. Colab).
+        "chunk_size": 13000,
+        "image_size": (224, 224),
+        "grayscale": True,
+        "max_boxes": 20,
+        # Seuil de score pour valid_mask a l'inference (Story 8.3, AD-15 : seuil en config,
+        # jamais une constante privee dupliquee). Valeur de depart alignee sur le
+        # conf_threshold=0.3 deja utilise par decode_segmentation_and_detect
+        # (inference_utils.py) pour le pipeline actuel - pas encore tunee pour ce format.
+        "detection_score_threshold": 0.3,
+
+        # === Augmentation de Données ===
+        # Copiée telle quelle de FIGHTERJET_DETECTION - point de départ raisonnable, pas
+        # encore tunée pour ce nouveau format (même statut que les hyperparamètres de perte).
+        "augmentation_params": {
+            "flip_h": True,
+            "flip_v": True,
+            "rotation_factor": 0.0,
+            "zoom_factor": 0.35,
+            "translation_factor": 0.25,
+            "brightness_delta": 0.15,
+            "contrast_factor": 0.30
+        },
+
+        # === Modèle ===
+        "model_name": "aircraft_detector_centernet",  # Story 7.2
+
+        # Proportion reelle de pixels positifs (gt_heatmap==1.0) mesuree sur les 211 266
+        # images du train set (2026-07-17, execution reelle Story 7.8) : 283 753 pixels
+        # positifs / 10 600 482 816 pixels totaux = 1.34 objet/image en moyenne sur une
+        # grille 224x224. Initialise le biais de la tete heatmap (AircraftDetectorCenterNet,
+        # model_library.py) pour eviter le collapse observe avec le biais par defaut
+        # (sigmoid(0)=0.5 partout - voir addendum post-hoc Story 7.2, 2026-07-17).
+        "heatmap_prior": 0.0000268,
+
+        # Pas de loss_method/metric_method/report_method : CenterNetDetectionStrategy
+        # (Story 7.6) n'a qu'une seule méthode de perte et une seule métrique, aucun
+        # dispatch interne - inclure ces clés suggérerait un dispatch qui n'existe pas.
+        "loss_params": {
+            "heatmap_weight": 1.0,
+            "size_weight": 0.1,
+            "alpha": 2.0,
+            "beta": 4.0
+        },
+        # Pas de metric_threshold : HeatmapActivation (addendum post-hoc 2026-07-18,
+        # CenterNetDetectionStrategy.compute_metrics) est une moyenne continue, plus de
+        # seuil dur - metric_threshold n'existe plus dans __init__.
+
+        # === Hyperparamètres TPU ===
+        "tpu": {
+            "micro_batch_size": 128,
+            "accum_steps": 1,
+            # batch effectif = 128 (micro_batch_size x accum_steps) - retour au meme batch
+            # effectif que le tout premier run (v1, jamais teste avec le correctif
+            # heatmap_prior). learning_rate reste a 4e-4 : c'etait deja la valeur calibree
+            # pour ce batch effectif (valeur d'origine FIGHTERJET_DETECTION/JAX_DETECTOR,
+            # Story 7.7) - pas besoin de la remonter puisqu'on ne l'augmente pas au-dela de
+            # 128, contrairement a 256x1/128x2 (batch effectif 256) qui auraient justifie
+            # un scaling proportionnel (~8e-4).
+            "learning_rate": 4e-4,
+            "weight_decay": 5e-5,
+            # 0.0 -> 0.1 (2026-07-18) : premier signe reel de divergence train/val a partir
+            # de l'epoch 3 (v4, detection/train seul, cf. archive/training_jax_detector_v4.txt)
+            # - train continue de monter, val plafonne. Seul point de dropout du modele
+            # (bottleneck, AircraftDetectorCenterNet), valeur moderee pour ne pas freiner
+            # davantage un apprentissage deja lent sur un signal heatmap eparse.
+            "dropout_rate": 0.1,
+            "warmup_steps": 400,
+            # 761 steps/epoch (detection/train seul, mesure reellement, v4) x 15 epochs.
+            "decay_steps": 11415,
+        },
+
+        # === Hyperparamètres GPU (2026-07-18, cible T4 Colab) ===
+        # Recalibre sur FIGHTERJET_DETECTION.gpu (dataset_configs.py:163-170) - meme
+        # architecture (UNet, profondeur/canaux identiques a CenterNet, Story 7.2 AC1),
+        # meme resolution 224x224, deja valide en pratique sur GPU local 6 Go a
+        # micro_batch_size=16. Le T4 Colab a ~16 Go VRAM (~2.7x le GPU local) - estimation
+        # raisonnable ~x4 (16->64), PAS verifiee sur un vrai T4 : redescendre a 32 en cas
+        # d'OOM. accum_steps=1 (pas 2/4) : les runs a mise a jour frequente (128x1, TPU)
+        # se sont mieux comportes cette session que ceux a batch effectif accumule
+        # (128x2) - pas de raison de recompliquer ici. learning_rate=2e-4 inchange :
+        # ratio 4e-4(TPU,128)/2e-4(GPU,64) = 2, proportionnel au ratio de batch (128/64=2),
+        # cohalent avec la calibration TPU. dropout_rate aligne sur le correctif TPU
+        # (2026-07-18, divergence train/val observee - propriete du modele/tache, pas du
+        # materiel). warmup/decay_steps niches ici (plus top-level partage, migration
+        # structurelle 2026-07-18) : 97531 // 64 = 1523 steps/epoch reels (drop_remainder=True)
+        # x 15 epochs = 22845 - meme duree relative (15 epochs) que le TPU (761x15=11415),
+        # calcul distinct car steps/epoch differe (batch 64 vs 128).
+        "gpu": {
+            "micro_batch_size": 64,
+            "accum_steps": 1,
+            "learning_rate": 2e-4,
+            "weight_decay": 5e-5,
+            "dropout_rate": 0.1,
+            "warmup_steps": 400,
+            "decay_steps": 22845,
+        },
+
+        # === Entraînement ===
+        # Structure copiée de FIGHTERJET_DETECTION comme point de départ - valeurs à
+        # réajuster empiriquement une fois l'entraînement réel lancé (Story 7.8).
+        "optimizer": "adamw",
+        "lr_schedule": "cosine",
+        # 8 -> 15 epochs, patience 5 -> 8 (2026-07-18) : meme levier que CIFAR10
+        # (dataset_configs.py, "necessaire pour laisser les epochs se derouler sans
+        # early-stop premature") - le run v4 (detection/train seul) a plafonne en val a
+        # partir de l'epoch 3 puis arrete a l'epoch 8 (patience=5 epuisee) alors que
+        # train continuait de progresser ; plus de marge pour voir si ca se degage.
+        "epochs": 15,
+        "patience": 8,
+        # warmup_steps/decay_steps niches sous tpu/gpu (2026-07-18, migration structurelle -
+        # ce sont des comptes de STEPS, dependants du steps/epoch donc du micro_batch_size,
+        # contrairement a epochs/patience qui restent partages ici).
+
+        # === Évaluation/Visualization ===
+        "eval_batch_size": 16,
+        "vis_freq": 5,
+
+        # === Sauvegarde ===
+        # Pas de checkpoint_path/training_state_path explicite : nommage dérivé de
+        # dataset_name (Story 5.0, CenterNetDetectionStrategy._get_export_path, Story 7.6)
+        # -> best_model_jax_detector.pkl / best_model_training_state_jax_detector.pkl
+        "save_dir": "./checkpoints_jax_detector",
     }
 }
 

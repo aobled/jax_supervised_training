@@ -1,0 +1,20 @@
+{
+    "image": {
+        "file_name": "testvid02.png",
+        "width": 1920,
+        "height": 1080
+    },
+    "annotation": {
+        "file_name": "testvid02.png",
+        "bbox": [
+            965.0,
+            759.0,
+            97.0,
+            52.0
+        ],
+        "category_name": "f22",
+        "bbox_id": 1,
+        "detection_score": 1.1709802150726318,
+        "classification_score": 0.33320266008377075
+    }
+}

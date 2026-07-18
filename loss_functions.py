@@ -1,6 +1,8 @@
 import jax
 import jax.numpy as jnp
 
+from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
+
 def compute_grid_loss(pred_grid, gt_boxes, lambda_coord=5.0, lambda_noobj=0.5):
     """
     Calcule la loss de détection style YOLO.
@@ -469,4 +471,59 @@ def compute_focal_loss(outputs, targets, gamma=2.0, alpha=1.0, use_onehot_labels
     # On multiplie par la target (qui est one-hot) pour ne garder que la classe correcte
     loss = -jnp.sum(targets * alpha * focal_weight * log_probs, axis=-1)
     return jnp.mean(loss)
+
+
+def compute_heatmap_focal_loss(pred_heatmap, gt_heatmap, alpha=2.0, beta=4.0):
+    """
+    Focal loss "penalty-reduced" pour heatmap de centres creux (CornerNet/CenterNet,
+    Law & Deng 2018 §3.3 / Zhou et al. 2019 Eq. 1). Différente de compute_focal_loss
+    (classification multiclasse, loss_functions.py:450) malgré le nom similaire.
+    pred_heatmap/gt_heatmap: (Batch, H, W, 1), valeurs [0,1]
+    """
+    epsilon = 1e-7
+    pred_safe = jnp.clip(pred_heatmap, epsilon, 1.0 - epsilon)
+
+    is_positive = (gt_heatmap == 1.0)
+
+    pos_loss = -jnp.power(1.0 - pred_safe, alpha) * jnp.log(pred_safe)
+    neg_loss = -jnp.power(1.0 - gt_heatmap, beta) * jnp.power(pred_safe, alpha) * jnp.log(1.0 - pred_safe)
+
+    loss_pixel = jnp.where(is_positive, pos_loss, neg_loss)
+
+    # max(num_pos, 1) plutot que num_pos+epsilon : sur un batch sans aucun positif (image
+    # sans objet reel), la normalisation par epsilon ferait exploser la magnitude de la loss
+    # (~1e8, cf. revue independante Story 7.3) sans etre NaN/inf - reste fini mais destabilise
+    # le gradient. Convention CenterNet canonique : la loss reste alors la somme (non
+    # normalisee) des termes negatifs, comme s'il y avait un seul "positif virtuel".
+    num_pos = jnp.sum(is_positive.astype(jnp.float32))
+    loss = jnp.sum(loss_pixel) / jnp.maximum(num_pos, 1.0)
+    return loss
+
+
+def compute_size_regression_loss(pred_size, gt_size):
+    """
+    Perte L1 masquée aux positions de centres réels (gt_size > 0 en largeur ET hauteur),
+    normalisée par le nombre de centres réels. Pas de masque séparé à threader (Story 7.1).
+    pred_size/gt_size: (Batch, H, W, 2)
+    """
+    epsilon = 1e-7
+    mask = jnp.all(gt_size > 0.0, axis=-1, keepdims=True)  # (Batch, H, W, 1)
+
+    l1 = jnp.abs(pred_size - gt_size) * mask
+
+    num_pos = jnp.sum(mask.astype(jnp.float32))
+    loss = jnp.sum(l1) / (num_pos + epsilon)
+    return loss
+
+
+def compute_centernet_loss(outputs, targets, heatmap_weight=1.0, size_weight=0.1, alpha=2.0, beta=4.0):
+    """
+    Combine compute_heatmap_focal_loss et compute_size_regression_loss.
+    outputs/targets: dict {HEATMAP_KEY: (B,H,W,1), SIZE_KEY: (B,H,W,2)} (Story 7.2).
+    Ne câble aucune stratégie d'entraînement (DetectionStrategy) - Story 7.6.
+    """
+    heatmap_loss = compute_heatmap_focal_loss(outputs[HEATMAP_KEY], targets[HEATMAP_KEY], alpha=alpha, beta=beta)
+    size_loss = compute_size_regression_loss(outputs[SIZE_KEY], targets[SIZE_KEY])
+
+    return heatmap_weight * heatmap_loss + size_weight * size_loss
 

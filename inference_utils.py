@@ -5,8 +5,14 @@ la prédiction et le décodage de détection par segmentation. Tout fichier qui 
 besoin d'une de ces fonctions importe depuis ce module — aucune redéfinition
 locale (voir ARCHITECTURE-SPINE.md, AD-1 à AD-8).
 
-Auteur unique (AD-7) : aucune autre story du refactor jax_supervised_training ne doit
-modifier ce fichier pour y ajouter ou changer une fonction.
+Historique (précision 2026-07-18, pour éviter toute confusion future) : la contrainte
+"auteur unique, aucune autre story ne doit modifier ce fichier" venait du AD-7 de la
+spine ORIGINALE (Epic 1, Story 1.2 - refactor initial de ce module, déjà achevé) et
+était scopée à cet epic-là, pas une interdiction permanente. La spine actuelle (JAX
+Single-Pass, Epic 7/8) a son propre AD-1 hérité qui autorise et prévoit explicitement
+l'extension de ce fichier par plusieurs de ses stories (`build_single_pass_predict_fn`
++ ses helpers de crop/resize JAX/extraction de pics, Stories 8.2-8.6 - voir
+ARCHITECTURE-SPINE.md du run 2026-07-15, lignes citant `inference_utils.py`).
 """
 import os
 import pickle
@@ -16,8 +22,11 @@ import cv2
 import numpy as np
 import jax
 import jax.numpy as jnp
+from jax.scipy.ndimage import map_coordinates
 
 from model_library import get_model
+from dataset_configs import get_dataset_config
+from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
 
 # Constantes privées (AD-2, AD-3, AD-6) — jamais redéfinies dans un fichier consommateur.
 DETECTION_IMAGE_SIZE = (224, 224)
@@ -152,6 +161,197 @@ def load_detection_model(checkpoint_path):
     return model, variables, config_model
 
 
+def _resize_for_detector(image, target_size, method, antialias=True):
+    """
+    RESIZE deterministe (AD-12) : image canonique (H,W,C) -> resolution detecteur.
+
+    target_size : (H,W) - derive de JAX_DETECTOR["image_size"] (dataset_configs.py),
+    jamais un litteral code en dur ici (AC1, Story 8.2). method/antialias : resultat
+    empirique de la Story 8.1 (mesure sur images reelles - "lanczos3", antialias=True).
+    method n'a pas de defaut (l'appelant doit le passer explicitement) ; antialias a
+    True comme defaut documente (revue independante Story 8.2) mais reste un parametre
+    explicite, pas code en dur dans le corps - cette fonction ne doit pas re-decider ce
+    que la Story 8.1 a deja tranche empiriquement, dans un sens comme dans l'autre.
+
+    Ne normalise JAMAIS (pas de /255.0) - pixels bruts en entree ET en sortie. La
+    normalisation est appliquee en aval, specifique a chaque branche (detecteur : Story 8.6
+    Task 2 ; classifieur : _normalize_crop_for_classifier, Story 8.5) - normaliser ici
+    double-normaliserait silencieusement la branche classification, qui recadre depuis
+    cette meme image source canonique (Story 8.5) et normalise deja son propre resultat.
+    """
+    h, w = target_size
+    channels = image.shape[-1]
+    return jax.image.resize(image, (h, w, channels), method=method, antialias=antialias)
+
+
+def _extract_peaks(heatmap):
+    """
+    Extraction de pics locaux JAX-native (Story 8.3, AD-9) - remplace cv2.findContours.
+
+    heatmap : (H,W,1), deja debatche par l'appelant (l'axe batch, toujours 1 dans ce
+    contrat "une image a la fois", est retire avant l'appel : heatmap[0]).
+
+    Peak-NMS standard CenterNet : un pixel est un pic s'il est deja son propre maximum
+    local sur une fenetre 3x3 (meme voisinage que peak_window de decode_detection_targets,
+    Story 7.1 - coherence de convention, pas une nouvelle valeur choisie sans lien).
+    jax.lax.reduce_window exige un operande et une fenetre de meme rang : on aplatit donc
+    a 2D (hm = heatmap[:, :, 0]) avant l'appel, jamais directement sur (H,W,1).
+
+    Retourne un heatmap (H,W) ou seuls les pixels-pics gardent leur score, le reste est
+    mis a 0.0.
+    """
+    hm = heatmap[:, :, 0]
+    hmax = jax.lax.reduce_window(
+        hm, -jnp.inf, jax.lax.max,
+        window_dimensions=(3, 3), window_strides=(1, 1), padding=[(1, 1), (1, 1)],
+    )
+    is_peak = hm == hmax
+    return jnp.where(is_peak, hm, 0.0)
+
+
+def _top_k_boxes(heatmap, size, k=20):
+    """
+    Selection Top-K des pics (Story 8.3, AC2) - repere resolution detecteur.
+
+    heatmap : (H,W) filtre par _extract_peaks (non-pics a 0.0). size : (H,W,2) carte de
+    taille (largeur, hauteur) produite par le detecteur (meme repere que heatmap, Story 8.2).
+    k=20 : plafond deja gere par construction (Dev Notes de la story) - jax.lax.top_k
+    retourne toujours exactement k valeurs ; s'il y a moins de k pics reels, les positions
+    restantes ont un score quasi nul (fond du heatmap) et sont ecartees en aval par
+    valid_mask (score > detection_score_threshold), jamais par une erreur ni une branche
+    speciale.
+
+    Retourne (boxes, scores) : boxes (k,4) = (x1,y1,x2,y2), scores (k,).
+
+    Note (revue independante Story 8.3) : contrairement a decode_detection_targets
+    (Story 7.1), cette fonction n'exclut pas les tailles degenerees (w<=0 ou h<=0) -
+    sans consequence sur des cibles vraies encodees (chaque pic a une taille valide par
+    construction), mais un pic de score eleve avec une taille predite quasi nulle sur de
+    VRAIES predictions de modele (hors scope de cette story) produirait une boite
+    degeneree non filtree. A verifier/traiter en Story 8.6 (assemblage complet sur
+    predictions reelles), pas ici.
+    """
+    H, W = heatmap.shape
+    flat_heatmap = heatmap.reshape(-1)
+    scores, flat_indices = jax.lax.top_k(flat_heatmap, k)
+    rows, cols = jnp.unravel_index(flat_indices, (H, W))
+
+    w = size[rows, cols, 0]
+    h = size[rows, cols, 1]
+    rows_f = rows.astype(jnp.float32)
+    cols_f = cols.astype(jnp.float32)
+
+    # Meme geometrie centre +/- moitie-taille que decode_detection_targets (Story 7.1,
+    # detection_target_encoding.py) - reimplementation JAX-native requise (la fonction de
+    # la Story 7.1 est explicitement non-JAX/hors-ligne), mais la formule doit rester
+    # identique, sinon une meme cible encodee se decoderait differemment selon le chemin.
+    x1 = cols_f - w / 2.0
+    y1 = rows_f - h / 2.0
+    x2 = cols_f + w / 2.0
+    y2 = rows_f + h / 2.0
+    boxes = jnp.stack([x1, y1, x2, y2], axis=-1)
+
+    return boxes, scores
+
+
+def _rescale_boxes(boxes, detector_size, original_size=(1920, 1080)):
+    """
+    RESCALE (AD-13) : boites du repere resolution detecteur (Story 8.3) vers le repere
+    image d'origine (AD-12).
+
+    boxes : (...,4) = (x1,y1,x2,y2), repere resolution detecteur. detector_size /
+    original_size : (W,H) - meme convention (largeur, hauteur) pour les deux, permet un
+    etirement non-uniforme par axe si le detecteur n'est pas au meme ratio que l'image
+    d'origine (stretched resizing, fighterjet_detection_dataset_tools.py:102-104 - pas de
+    letterbox).
+
+    Inverse EXACT de la convention demi-pixel utilisee par RESIZE (Story 8.1/8.2),
+    jamais une simple multiplication : RESIZE va src->dst via
+    dst = (src+0.5)*(D/S) - 0.5 ; l'inverse exact est donc
+    src = (dst+0.5)*(S/D) - 0.5, PAS src = dst*(S/D) - une simple multiplication omet le
+    terme 0.5*(scale-1), soit un decalage systematique de plusieurs pixels sur toutes les
+    boites (silencieux, rien ne plante - c'est precisement ce qu'AD-13 existe pour
+    empecher). Applique independamment a x1/x2 (scale_x) et y1/y2 (scale_y).
+
+    valid_mask/scores (Story 8.3) ne transitent jamais par cette fonction - elle ne prend
+    et ne retourne que des coordonnees (Task 2).
+    """
+    detector_w, detector_h = detector_size
+    original_w, original_h = original_size
+    scale_x = original_w / detector_w
+    scale_y = original_h / detector_h
+
+    x1 = (boxes[..., 0] + 0.5) * scale_x - 0.5
+    y1 = (boxes[..., 1] + 0.5) * scale_y - 0.5
+    x2 = (boxes[..., 2] + 0.5) * scale_x - 0.5
+    y2 = (boxes[..., 3] + 0.5) * scale_y - 0.5
+
+    return jnp.stack([x1, y1, x2, y2], axis=-1)
+
+
+def _differentiable_crop(image, boxes, crop_size=(128, 128)):
+    """
+    CROP JAX-natif (AD-11) : boites (repere image d'origine, Story 8.4) -> crops
+    geometrie seule, `map_coordinates` + `vmap`, jamais de boucle python ni cv2.
+
+    image : (H,W,C) pixels bruts [0,255] (AD-12, meme image source canonique partagee
+    avec la branche detection - jamais normalisee ici, precondition tranchee en Story 8.2).
+    boxes : (20,4) = (x1,y1,x2,y2), repere image d'origine (Story 8.4).
+    Formule demi-pixel + mode hors-limites : identiques a Story 8.1
+    (`test_pixel_parity.py::_map_coordinates_crop`), pas une nouvelle hypothese.
+
+    Correction (execution Story 8.5, 2026-07-18) : les boites sont TRONQUEES A
+    L'ENTIER ici avant le crop. Les Dev Notes originales de cette story affirmaient
+    l'inverse ("garder les coordonnees flottantes pour ne pas casser le flux de
+    gradient") - hypothese perimee, contredite par le resultat effectivement MESURE de
+    la Story 8.1 une fois executee (SPEC.md, Open Questions) : FIGHTERJET_CLASSIFICATION
+    est un modele FIGE, entraine sur des crops issus de coordonnees entieres tronquees
+    (`fighterjet_classification_dataset_tools.py:174`, `map(int, bbox)|`) - garder les
+    coordonnees flottantes degrade la parite avec cette distribution d'entrainement de
+    6.55x (mesure Story 8.1, Task 4). Aucun entrainement de bout en bout n'est prevu
+    dans cet epic (SPEC.md, Non-goals : FIGHTERJET_CLASSIFICATION n'est jamais
+    reentraine) - le benefice "flux de gradient preserve" etait purement hypothetique,
+    le cout de parite est reel et deja mesure. `jnp.trunc` (troncature vers zero, meme
+    semantique que `int()` Python) plutot que `jnp.floor`, pour rester fidele au chemin
+    d'entrainement/d'inference existant sur des coordonnees generalement positives.
+    """
+    boxes = jnp.trunc(boxes)
+    out_h, out_w = crop_size
+
+    def _crop_one_box(box):
+        x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
+        scale_x = (x2 - x1) / out_w
+        scale_y = (y2 - y1) / out_h
+        dst_y, dst_x = jnp.meshgrid(jnp.arange(out_h), jnp.arange(out_w), indexing="ij")
+        src_x = x1 + (dst_x.astype(jnp.float32) + 0.5) * scale_x - 0.5
+        src_y = y1 + (dst_y.astype(jnp.float32) + 0.5) * scale_y - 0.5
+
+        def _crop_one_channel(channel_2d):
+            return map_coordinates(channel_2d, [src_y, src_x], order=1, mode="nearest")
+
+        return jax.vmap(_crop_one_channel, in_axes=-1, out_axes=-1)(image)
+
+    return jax.vmap(_crop_one_box, in_axes=0)(boxes)
+
+
+def _normalize_crop_for_classifier(crop, mean, std):
+    """
+    Normalisation du crop pour FIGHTERJET_CLASSIFICATION (Story 8.5, AC1/AC3) - logique
+    extraite de `_preprocess_crop_to_hwc` (uniquement les lignes /255.0 puis (x-mean)/std,
+    PAS son `cv2.resize` : le crop est deja a la resolution cible via `_differentiable_crop`).
+
+    crop : (H,W,C) pixels bruts [0,255], deja grayscale mono-canal (image source
+    canonique AD-12), contrairement au crop OpenCV BGR potentiellement couleur gere par
+    `_preprocess_crop_to_hwc` - aucune conversion couleur necessaire ici.
+
+    Seule fonction de toute la branche classification a diviser par 255 - appelee
+    exactement une fois par crop, jamais en amont sur l'image source partagee (qui
+    alimente aussi la branche detection, Story 8.2/8.6).
+    """
+    img_input = crop.astype(jnp.float32) / 255.0
+    return (img_input - mean) / std
+
+
 def _preprocess_crop_to_hwc(crop_img, mean, std, config):
     """Prépare un crop BGR en tenseur (H, W, C) float32."""
     target_size = config["image_size"]
@@ -252,6 +452,114 @@ def build_clf_predict_fn(model, variables):
         probs = jax.nn.softmax(logits, axis=-1)
         pred_indices = jnp.argmax(probs, axis=-1)
         return probs, pred_indices
+    return predict_fn
+
+
+def build_single_pass_predict_fn(
+    detector_checkpoint_path=None,
+    classifier_checkpoint_path=None,
+    resize_method="lanczos3",
+):
+    """
+    Assemblage final JAX Single-Pass (AD-16, Story 8.6) : RESIZE -> detecteur ->
+    pics/Top-K -> RESCALE -> CROP+normalisation -> classification, en un unique
+    callable JIT-compilable de bout en bout. Compose les briques deja validees
+    individuellement des Stories 8.2-8.5, sans en modifier aucune.
+
+    Chargement des deux modeles figes UNE SEULE FOIS ici, hors JIT (AD-14/NFR1,
+    lecture seule). Retourne uniquement `predict_fn` (pas les modeles/variables),
+    meme contrat d'usage que `build_predict_fn`/`build_clf_predict_fn`.
+
+    resize_method : resultat empirique de la Story 8.1 (lanczos3+antialias=True) - passe
+    explicitement, pas re-decide ici (meme discipline que _resize_for_detector, Story 8.2).
+
+    Contrat de sortie (AD-15/AC3) : {"boxes": (20,4), "classes": (20,), "class_scores":
+    (20,), "detection_scores": (20,), "valid_mask": (20,)} - 20 slots fixes. Precision
+    (revue independante Story 8.6) : les slots invalides ne sont PAS mis a zero - ils
+    portent des valeurs derivees du fond du heatmap (non-nulles, cf. Stories 8.3/8.4/8.5,
+    qui filtrent via valid_mask et non par mise a zero explicite). valid_mask reste la
+    SEULE autorite pour distinguer un slot reel d'un slot vide (jamais deduit de la
+    classification, ni du fait qu'une valeur soit ou non a zero) - un consommateur en
+    aval NE DOIT PAS inferer la validite d'un slot depuis ses valeurs numeriques.
+
+    AD-20 : n'appelle jamais decode_segmentation_and_detect(_batch)/non_max_suppression
+    (ancien pipeline FIGHTERJET_DETECTION, non modifie, non touche par ce chemin).
+    """
+    config_det = get_dataset_config("JAX_DETECTOR")
+    config_clf = get_dataset_config("FIGHTERJET_CLASSIFICATION")
+
+    if detector_checkpoint_path is None:
+        detector_checkpoint_path = config_det.get("checkpoint_path") or (
+            f"best_model_{config_det['dataset_name'].lower()}.pkl"
+        )
+    if classifier_checkpoint_path is None:
+        classifier_checkpoint_path = config_clf.get("checkpoint_path") or (
+            f"best_model_{config_clf['dataset_name'].lower()}.pkl"
+        )
+
+    # detection_score_threshold : uniquement depuis get_dataset_config("JAX_DETECTOR")
+    # (Story 8.3) - absent du checkpoint, ne vient jamais de config_model.
+    detection_score_threshold = config_det["detection_score_threshold"]
+
+    detector_model, detector_vars, config_model = load_detection_model(detector_checkpoint_path)
+    classifier_model, classifier_vars, clf_mean, clf_std = load_jax_model(
+        classifier_checkpoint_path, config_clf
+    )
+
+    detector_predict_fn = build_predict_fn(detector_model, detector_vars)
+    classifier_predict_fn = build_clf_predict_fn(classifier_model, classifier_vars)
+
+    # image_size du detecteur : uniquement depuis config_model (retourne par
+    # load_detection_model, Story 8.2 Task 4) - jamais une deuxieme lecture depuis
+    # config_det["image_size"], deux sources qui pourraient diverger sinon.
+    #
+    # Note (revue independante Story 8.6, fragilite latente signalee) : cette meme
+    # valeur est passee a la fois a _resize_for_detector (qui lit target_size comme
+    # (H,W), Story 8.2) et _rescale_boxes (qui lit detector_size comme (W,H), Story
+    # 8.4) - inoffensif tant que JAX_DETECTOR.image_size reste carre (224,224), mais
+    # inverserait silencieusement les echelles x/y si le detecteur devenait un jour
+    # non-carre. A corriger (uniformiser la convention entre les deux fonctions) avant
+    # toute future config de detecteur non-carree - hors scope de cette story.
+    detector_image_size = config_model["image_size"]
+    classifier_crop_size = tuple(config_clf["image_size"])
+
+    @jax.jit
+    def predict_fn(image):
+        # RESIZE (Story 8.2) : geometrie seule, image reste brute [0,255].
+        resized = _resize_for_detector(image, detector_image_size, resize_method)
+        # Normalisation detecteur : appliquee ICI uniquement, jamais sur `image`
+        # directement (double-normalisation silencieuse sinon de la branche
+        # classification, qui recadre depuis cette meme `image` brute, Story 8.5).
+        resized_norm = resized / 255.0
+
+        heatmap_size = detector_predict_fn(resized_norm[None, ...])
+        heatmap = heatmap_size[HEATMAP_KEY][0]  # debatchage (Story 8.3)
+        size_map = heatmap_size[SIZE_KEY][0]
+
+        filtered_heatmap = _extract_peaks(heatmap)
+        boxes_det, scores = _top_k_boxes(filtered_heatmap, size_map, k=20)
+        valid_mask = scores > detection_score_threshold
+
+        # RESCALE (Story 8.4) : inverse exact demi-pixel, meme source detector_image_size.
+        boxes_orig = _rescale_boxes(boxes_det, detector_image_size, original_size=(1920, 1080))
+
+        # CROP + normalisation classifieur (Story 8.5) : geometrie depuis `image` brute,
+        # normalisation distincte de celle du detecteur, appliquee uniquement ici.
+        crops = _differentiable_crop(image, boxes_orig, crop_size=classifier_crop_size)
+        crops_norm = _normalize_crop_for_classifier(crops, clf_mean, clf_std)
+
+        class_probs, class_indices = classifier_predict_fn(crops_norm)
+        classes = class_indices
+        class_scores = jnp.max(class_probs, axis=-1)
+
+        return {
+            "boxes": boxes_orig,
+            "classes": classes,
+            "class_scores": class_scores,
+            "detection_scores": scores,
+            "valid_mask": valid_mask,
+        }
+
     return predict_fn
 
 

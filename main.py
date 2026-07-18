@@ -80,12 +80,20 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
     train_ds, val_ds = get_datasets(config, backend_config)
     
     # Vérification des datasets
+    def _shape_repr(x):
+        # targets est un tenseur unique (classification/detection/kepler) ou un dict
+        # {HEATMAP_KEY, SIZE_KEY} (detection_centernet, Story 7.5) - generique, pas
+        # specifique a un task_type (meme classe de correctif que trainer.py, Story 7.6).
+        if isinstance(x, dict):
+            return {k: v.shape for k, v in x.items()}
+        return x.shape
+
     print("\n🔍 Vérification des datasets...")
     sample_train = next(iter(train_ds.as_numpy_iterator()))
     if val_ds:
         sample_val = next(iter(val_ds.as_numpy_iterator()))
-        print(f"📊 Train: shape={sample_train[0].shape}, targets={sample_train[1].shape}")
-        print(f"📊 Val: shape={sample_val[0].shape}, targets={sample_val[1].shape}")
+        print(f"📊 Train: shape={_shape_repr(sample_train[0])}, targets={_shape_repr(sample_train[1])}")
+        print(f"📊 Val: shape={_shape_repr(sample_val[0])}, targets={_shape_repr(sample_val[1])}")
     
     train_dataset_final = train_ds
     val_dataset_final = val_ds
@@ -101,7 +109,13 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
     print(f"Classes: {num_classes}")
     print(f"Dropout: {dropout_rate}")
     
-    model = get_model(model_name, num_classes=num_classes, dropout_rate=dropout_rate)
+    model_kwargs = {"num_classes": num_classes, "dropout_rate": dropout_rate}
+    if "heatmap_prior" in config:
+        # aircraft_detector_centernet uniquement (Story 7.2 addendum) - les autres factories
+        # (sophisticated_cnn_*) n'ont pas de **kwargs de secours et leveraient un TypeError
+        # si on leur passait un argument inattendu, d'ou le passage conditionnel
+        model_kwargs["heatmap_prior"] = config["heatmap_prior"]
+    model = get_model(model_name, **model_kwargs)
     
     # 4. INSTANCIATION DE LA STRATEGIE (Injection de dépendance)
     task_type = config.get("task_type", "classification")
@@ -139,6 +153,15 @@ def main(dataset_name="FIGHTERJET_9CLASSES"):
             metric_method=metric_method,
             report_method=report_method
         )
+    elif task_type == "detection_centernet":
+        print("🎯 Application de la logique d'entraînement : DETECTION CENTERNET")
+        from task_strategies import CenterNetDetectionStrategy
+        # CenterNetDetectionStrategy n'a pas de dispatch interne (une seule methode de
+        # perte/metrique, Story 7.6) - signature reelle (loss_params uniquement, plus de
+        # metric_threshold depuis l'addendum post-hoc 2026-07-18 : HeatmapActivation est
+        # une moyenne continue, pas un seuil dur), pas loss_method/metric_method/
+        # report_method comme les 3 branches ci-dessus.
+        strategy = CenterNetDetectionStrategy(loss_params=loss_params)
     else:
         raise ValueError(f"task_type '{task_type}' non reconnu.")
 

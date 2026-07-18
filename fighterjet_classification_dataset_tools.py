@@ -396,7 +396,6 @@ def calculate_normalization_stats(root_dir, sample_size=None, grayscale=False, s
     return mean, std
 
 # 🎨 GÉNÉRATION DU DATASET
-TARGET_SIZE = 128
 
 #------------------------------
 #--- Configuration download ---

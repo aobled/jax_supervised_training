@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1]
+stepsCompleted: [1, 2, 3]
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-JAX_Detection-2026-07-12/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-JAX_Detection-2026-07-12/ARCHITECTURE-SPINE.md
@@ -738,3 +738,389 @@ FR1: Epic 7 — Entraînement JAX_DETECTOR
 FR2: Epic 8 — Composition d'inférence JAX Single-Pass
 FR3: Epic 8 — Composition d'inférence JAX Single-Pass (fusion de boîtes résolue structurellement)
 FR4: Epic 8 — Composition d'inférence JAX Single-Pass (classification figée réutilisée)
+
+## Epic List
+
+### Epic 7: Entraînement de JAX_DETECTOR
+
+Un nouveau modèle de détection par point central (heatmap de centres + régression de taille) est entraîné et produit des prédictions exploitables sur un jeu de validation — sans jamais nécessiter de dataset full-HD. Standalone : livre un détecteur entraîné et évaluable indépendamment, même avant que la composition d'inférence unifiée n'existe.
+**FRs covered:** FR1
+**Note d'implémentation :** nouvelle classe modèle, nouvelle stratégie dédiée (AD-9/AD-17), nouvelles fonctions de perte, nouvelle entrée `JAX_DETECTOR` (`dataset_configs.py`), nouvelle classe de chargeur (AD-17/AD-18), `fighterjet_detection_dataset_tools_v2.py` (AD-18), dispatch `task_type` ajouté à `main.py` (AD-17). Séquencement probable type "Story 0" (schéma `.npz` heatmap+taille défini avant les stories consommatrices), sur le même principe que l'Epic 1 (AD-7 hérité).
+
+### Epic 8: Composition d'inférence JAX Single-Pass
+
+Une unique fonction JIT-compilée transforme une image brute en détections classées, sans python/cv2 intermédiaire — remplace l'orchestration manuelle dans les scripts de génération vidéo/image. Standalone : consomme Epic 7 (détecteur entraîné) + `FIGHTERJET_CLASSIFICATION` existante (figée), sans que l'ancien pipeline `FIGHTERJET_DETECTION` ne soit jamais requis de fonctionner différemment (AD-20).
+**FRs covered:** FR2, FR3, FR4
+**Note d'implémentation :** `build_single_pass_predict_fn` dans `inference_utils.py` (AD-1 hérité, AD-16) ; dépend d'un `JAX_DETECTOR` entraîné (Epic 7) ; migration des scripts consommateurs ; non-régression garantie sur l'ancien pipeline (AD-20).
+
+## Epic 7: Entraînement de JAX_DETECTOR
+
+Un nouveau modèle de détection par point central (heatmap de centres + régression de taille) est entraîné et produit des prédictions exploitables sur un jeu de validation — sans jamais nécessiter de dataset full-HD. Standalone : livre un détecteur entraîné et évaluable indépendamment, même avant que la composition d'inférence unifiée n'existe. **FRs covered:** FR1
+
+### Story 7.1: Définition du schéma d'échange heatmap+taille (AD-18)
+
+As a mainteneur du pipeline de détection,
+I want un module/paire de fonctions partagées qui encodent des boîtes brutes en cibles heatmap+taille et les décodent en retour,
+So that le producteur (`fighterjet_detection_dataset_tools_v2.py`) et le consommateur (nouvelle classe `data_management.py`) ne réimplémentent jamais indépendamment le même format, évitant une lecture croisée silencieusement incompatible (AD-18).
+
+**Acceptance Criteria:**
+
+**Given** `raw_boxes` au format existant (`data["annotation"]["bbox"]`, x/y/w/h, déjà confirmé comme source de vérité)
+**When** la fonction d'encodage est appelée sur un ensemble de boîtes pour une image à la résolution de config
+**Then** elle retourne un heatmap de centres (gaussien, rayon dérivé de la taille de boîte) et une carte de régression de taille, avec un format de clés de sortie fixé et documenté (noms, shapes, unités)
+
+**Given** les cibles heatmap+taille produites par la fonction d'encodage
+**When** la fonction de décodage est appelée sur ces mêmes cibles (round-trip)
+**Then** les boîtes récupérées correspondent aux boîtes d'origine à une tolérance near-exacte (validation du round-trip, pas juste de la forme)
+
+**Given** AD-18 (source unique)
+**When** `fighterjet_detection_dataset_tools_v2.py` (Story 7.4) et la nouvelle classe de `data_management.py` (Story 7.5) sont implémentées
+**Then** les deux importent ces fonctions partagées ; aucune des deux ne réimplémente indépendamment le format des clés `.npz`
+
+**Given** cette story est un prérequis bloquant (même principe qu'AD-7 hérité / Story 1.2)
+**When** elle est complétée
+**Then** aucune story suivante de l'Epic 7 ne redéfinit le schéma d'échange — seules 7.4 et 7.5 l'importent
+
+### Story 7.2: Nouvelle classe modèle JAX_DETECTOR (AD-9, AD-10)
+
+As a mainteneur de la factory de modèles,
+I want une nouvelle classe de modèle encoder-decoder avec une tête heatmap de centres + régression de taille,
+So that `JAX_DETECTOR` soit instanciable via `model_library.get_model()` comme n'importe quel autre modèle du pipeline.
+
+**Acceptance Criteria:**
+
+**Given** `AircraftDetectorUNet` actuel comme référence de famille d'architecture (encoder-decoder simple)
+**When** la nouvelle classe est implémentée
+**Then** elle reste dans la même famille (pas de backbone+FPN, AD-10) et remplace la sortie de segmentation par deux têtes : un heatmap de centres et une carte de régression de taille (2 canaux, largeur/hauteur)
+
+**Given** le registre `MODELS` de `model_library.py`
+**When** la classe est ajoutée
+**Then** elle est enregistrée sous le nom `aircraft_detector_centernet` (cohérent avec `aircraft_detector_unet`, reflète la tête par point central style CenterNet, AD-9) et instanciable via `get_model()`
+
+**Given** un forward pass sur une image à la résolution de config (batch factice)
+**When** le modèle est appelé en mode train et en mode eval
+**Then** les shapes de sortie (heatmap, taille) sont correctes et cohérentes avec le schéma défini en Story 7.1
+
+### Story 7.3: Nouvelles fonctions de perte (heatmap focal loss + régression de taille)
+
+As a mainteneur du pipeline d'entraînement,
+I want des fonctions de perte dédiées à la sortie heatmap+taille,
+So that `JAX_DETECTOR` puisse être entraîné avec un signal de gradient adapté à un heatmap creux (déséquilibre positif/négatif).
+
+**Acceptance Criteria:**
+
+**Given** un heatmap de centres cible (gaussien, creux) et un heatmap prédit
+**When** la fonction de perte heatmap est calculée
+**Then** elle utilise une formulation focal loss adaptée aux heatmaps creux, plutôt qu'une cross-entropy simple dominée par le fond
+
+**Given** une carte de régression de taille cible et prédite, valide uniquement aux positions de centre réel
+**When** la perte de régression de taille est calculée
+**Then** elle n'est calculée qu'aux positions où un centre réel existe (masquée ailleurs)
+
+**Given** `loss_functions.py`
+**When** les deux fonctions sont ajoutées
+**Then** aucune fonction existante n'est réutilisée ni réintroduite — nouvelles fonctions dédiées. En particulier `compute_grid_loss`/`compute_grid_loss_multilevel` (`loss_functions.py`, toujours présentes et importées par `task_strategies.py` — **vérifié le 2026-07-16, contrairement à une affirmation antérieure erronée les disant supprimées à l'Epic 3** ; probablement du code mort en pratique car aucune config active de `dataset_configs.py` n'utilise un `loss_method` grid-based, mais non supprimées) restent dédiées à l'ancienne approche grid-based et ne sont ni réutilisées ni modifiées par cette story
+
+### Story 7.4: fighterjet_detection_dataset_tools_v2.py — génération des chunks depuis raw_boxes
+
+As a mainteneur de la préparation de données,
+I want un nouveau script qui génère des chunks `.npz` heatmap+taille depuis les mêmes `raw_boxes` que l'outil actuel,
+So that `JAX_DETECTOR` dispose d'un dataset d'entraînement, sans jamais toucher `fighterjet_detection_dataset_tools.py` (AD-20, non-régression).
+
+**Acceptance Criteria:**
+
+**Given** le schéma d'échange défini en Story 7.1
+**When** `fighterjet_detection_dataset_tools_v2.py` encode les `raw_boxes` d'une image
+**Then** il produit des chunks `.npz` au format défini en 7.1, à la résolution de config `JAX_DETECTOR` (pas full-HD, NFR2)
+
+**Given** `fighterjet_detection_dataset_tools.py` (l'outil actuel, approche masque)
+**When** le nouveau script est créé
+**Then** il n'est ni modifié ni supprimé — fichier séparé, coexistence complète (AD-20)
+
+**Given** le pattern déjà en place dans l'outil actuel (résolution source quelconque → résolution de config stockée, coordonnées rescalées proportionnellement)
+**When** le nouveau script traite des images sources de résolution variable
+**Then** il applique le même principe de rescale proportionnel avant encodage
+
+### Story 7.5: Nouvelle classe de chargeur dédiée (data_management.py, AD-17/AD-18)
+
+As a mainteneur du pipeline de données,
+I want une nouvelle classe de chargeur dédiée au format heatmap+taille,
+So that `JAX_DETECTOR` charge ses chunks sans jamais modifier `DetectionDataset` (qui reste dédiée au format masque existant, AD-20).
+
+**Acceptance Criteria:**
+
+**Given** `DetectionDataset` actuelle (attend une clé `'masks'` explicite, vérifiée ligne ~300)
+**When** la nouvelle classe est créée
+**Then** `DetectionDataset` n'est ni modifiée ni étendue par une branche conditionnelle — nouvelle classe séparée (pattern `ChunkManager`/`DetectionDataset` hérité)
+
+**Given** le schéma d'échange défini en Story 7.1
+**When** la nouvelle classe charge un chunk produit par la Story 7.4
+**Then** elle utilise les fonctions de décodage partagées, sans réimplémenter sa propre lecture des clés
+
+**Given** le dispatch `task_type` existant (`data_management.py:429-463`)
+**When** la nouvelle classe est intégrée
+**Then** un nouveau `task_type` dédié (défini en Story 7.7) la sélectionne, sans casser le dispatch existant
+
+### Story 7.6: Nouvelle stratégie dédiée (task_strategies.py, AD-9/AD-17)
+
+As a mainteneur du pipeline d'entraînement,
+I want une nouvelle `TaskStrategy` dédiée au format heatmap+taille,
+So that `JAX_DETECTOR` s'entraîne via le pattern Strategy/Factory/DI existant, sans modifier `DetectionStrategy` (AD-20).
+
+**Acceptance Criteria:**
+
+**Given** `DetectionStrategy` actuelle (dédiée à l'approche segmentation)
+**When** la nouvelle stratégie est créée
+**Then** `DetectionStrategy` n'est ni modifiée ni étendue — nouvelle classe séparée implémentant l'interface `TaskStrategy`
+
+**Given** les fonctions de perte de la Story 7.3
+**When** la nouvelle stratégie calcule la perte d'entraînement
+**Then** elle compose la perte heatmap + la perte de régression de taille
+
+**Given** le nommage de checkpoint dérivé de `dataset_name` (pattern Story 5.0, déjà en place)
+**When** la nouvelle stratégie exporte un modèle
+**Then** elle suit le même pattern `_get_export_path`/`get_training_state_path` dérivé de `config["dataset_name"]`, pas de `task_type` codé en dur
+
+### Story 7.7: Entrée JAX_DETECTOR (dataset_configs.py) + dispatch task_type (main.py, AD-17)
+
+As a mainteneur du pipeline de configuration,
+I want une nouvelle entrée `JAX_DETECTOR` dans `dataset_configs.py` et son dispatch dans `main.py`,
+So that l'entraînement soit lançable via `main.py JAX_DETECTOR`, cohérent avec les configs existantes.
+
+**Acceptance Criteria:**
+
+**Given** `DATASET_CONFIGS` et `validate_config` (exige un `model_name` unique)
+**When** `JAX_DETECTOR` est ajoutée
+**Then** elle définit `model_name` (Story 7.2), `image_size`, `num_classes`, et un `task_type` dédié dont le littéral exact est utilisé identiquement dans `task_strategies.py` (7.6), `data_management.py` (7.5) et `main.py`
+
+**Given** `main.py:107-143` (dispatch `if/elif` existant : classification, detection, kepler)
+**When** le nouveau `task_type` est ajouté
+**Then** une branche supplémentaire instancie la stratégie de la Story 7.6, sans modifier le comportement des branches existantes
+
+**Given** AD-20 (non-régression)
+**When** cette story est complétée
+**Then** `FIGHTERJET_DETECTION` reste inchangée dans `dataset_configs.py`, aucun renommage ni suppression
+
+### Story 7.8: Entraînement complet + validation (preuve d'exécution, FR1/CAP-1)
+
+As a mainteneur du pipeline de détection,
+I want lancer un entraînement complet de `JAX_DETECTOR` et valider ses prédictions sur un jeu de validation,
+So that FR1 soit prouvé par exécution réelle — le critère de succès de CAP-1.
+
+**Acceptance Criteria:**
+
+**Given** les Stories 7.1 à 7.7 complétées
+**When** `main.py JAX_DETECTOR` est exécuté
+**Then** l'entraînement se déroule sans erreur jusqu'à son terme, produisant un checkpoint exporté
+
+**Given** le checkpoint produit
+**When** des prédictions sont faites sur un jeu de validation tenu à l'écart
+**Then** les heatmaps de centres et les tailles de boîte prédites sont exploitables (comparaison qualitative a minima)
+
+**Given** NFR2 (pas de dataset full-HD)
+**When** l'entraînement est vérifié
+**Then** aucune étape n'a nécessité de charger un dataset à résolution full-HD — uniquement les chunks à résolution de config (Story 7.4)
+
+**Given** l'initialisation de l'encodeur (question ouverte de `SPEC.md`, non tranchée)
+**When** cette story est lancée
+**Then** l'initialisation aléatoire est utilisée par défaut — le transfert learning depuis l'UNet reste une question ouverte séparée, non traitée ici
+
+## Epic 8: Composition d'inférence JAX Single-Pass
+
+Une unique fonction JIT-compilée transforme une image brute en détections classées, sans python/cv2 intermédiaire — remplace l'orchestration manuelle dans les scripts de génération vidéo/image. Standalone : consomme Epic 7 (détecteur entraîné) + `FIGHTERJET_CLASSIFICATION` existante (figée), sans que l'ancien pipeline `FIGHTERJET_DETECTION` ne soit jamais requis de fonctionner différemment (AD-20). **FRs covered:** FR2, FR3, FR4
+
+### Story 8.1: Validation de parité pixel (RESIZE + CROP)
+
+As a mainteneur du pipeline d'inférence,
+I want un script de test autonome comparant numériquement le `RESIZE` JAX (1920×1080→224×224) à PIL/LANCZOS, et le `CROP` JAX (`map_coordinates`) à `cv2.resize`, sur des images réelles,
+So that les deux risques de régression silencieuse de `SPEC.md` soient écartés avant d'investir dans le code de composition.
+
+**Acceptance Criteria:**
+
+**Given** une image réelle de résolution 1920×1080
+**When** elle est redimensionnée en 224×224 via la méthode JAX choisie et via PIL/LANCZOS (méthode utilisée pour préparer les chunks d'entraînement `JAX_DETECTOR`, `fighterjet_detection_dataset_tools.py:104`)
+**Then** l'écart numérique pixel par pixel est mesuré et documenté (pas une comparaison visuelle)
+
+**Given** une boîte connue sur une image réelle
+**When** elle est recadrée et redimensionnée en 128×128 via `map_coordinates` et via `cv2.resize` (méthode utilisée pour entraîner `FIGHTERJET_CLASSIFICATION`)
+**Then** l'écart numérique est mesuré, y compris la convention d'alignement pixel (bord vs centre)
+
+**Given** une boîte prédite dont le centre est proche du bord du cadre (ex. x≈1919 ou y≈1079), une partie de la boîte tombant hors de l'image source
+**When** le crop est effectué via `map_coordinates` sur cette boîte
+**Then** le comportement hors-limites (clamp vs extrapolation) est explicitement mesuré et documenté, pas seulement le cas nominal centré dans l'image (trouvé en party mode, Code Review Crew — Boundary/Grumbal)
+
+**Given** les deux Open Questions correspondantes de `SPEC.md`
+**When** cette story est complétée
+**Then** `SPEC.md` est mis à jour pour refléter le résultat mesuré, pas seulement affirmé
+
+**Given** un écart significatif serait détecté
+**When** cette story est complétée
+**Then** la méthode JAX est ajustée jusqu'à obtenir une parité acceptable, avant que les Stories 8.2/8.5 ne s'appuient dessus
+
+### Story 8.2: RESIZE + appel du détecteur figé (branche détection)
+
+As a mainteneur du pipeline d'inférence,
+I want une étape `RESIZE` déterministe (dérivée de la config `JAX_DETECTOR`) suivie d'un appel au détecteur figé,
+So that l'image canonique produise un heatmap+taille en repère résolution détecteur.
+
+**Acceptance Criteria:**
+
+**Given** une image d'entrée canonique 1920×1080 grayscale
+**When** `RESIZE` est appliqué
+**Then** la taille cible est dérivée de la clé `image_size` de la config `JAX_DETECTOR` (jamais un littéral codé en dur, AD-12), avec la méthode validée en Story 8.1
+
+**Given** le checkpoint `JAX_DETECTOR` (Epic 7)
+**When** il est chargé pour la composition
+**Then** il suit le fallback de chemin à 3 niveaux + ré-init `batch_stats` (AD-3 hérité), poids en lecture seule
+
+**Given** l'image redimensionnée
+**When** le détecteur figé est appelé
+**Then** il produit un heatmap de centres + une carte de régression de taille au format défini en Story 7.1
+
+### Story 8.3: Extraction de pics + Top-K
+
+As a mainteneur du pipeline d'inférence,
+I want extraire les boîtes candidates depuis le heatmap+taille via une extraction de pics JAX-native,
+So that le décodage soit 100% JAX, sans `cv2.findContours` (AD-9).
+
+**Acceptance Criteria:**
+
+**Given** le heatmap de centres produit en Story 8.2
+**When** l'extraction de pics est appliquée
+**Then** elle utilise `jax.lax.reduce_window` (max-pool peak-NMS), jamais `cv2.findContours`/morphologie python
+
+**Given** les pics extraits et leurs scores
+**When** la sélection Top-K est appliquée
+**Then** `jax.lax.top_k` retient au maximum 20 candidats (repère résolution détecteur), avec leurs tailles associées
+
+**Given** une image contenant plus de 20 détections réelles au-dessus du seuil de confiance (formation dense)
+**When** la sélection Top-K est appliquée
+**Then** les 20 détections de plus haute confiance sont conservées et les autres sont écartées sans erreur — plafond silencieux assumé par conception, cohérent avec la limite déjà existante du pipeline `FIGHTERJET_DETECTION` actuel ("jusqu'à 20 avions"), pas une régression (décidé en party mode, Code Review Crew — Boundary/Grumbal/Dana)
+
+**Given** AD-13 (source unique de stride)
+**When** cette story et la Story 8.4 sont implémentées
+**Then** les deux utilisent la même valeur nommée de stride/résolution de sortie du détecteur, définie une seule fois
+
+### Story 8.4: RESCALE (repère détecteur → repère image d'origine)
+
+As a mainteneur du pipeline d'inférence,
+I want une étape `RESCALE` déterministe et symétrique du `RESIZE` d'entrée,
+So that les coordonnées de boîte soient ramenées dans le repère de l'image source avant le crop (AD-13).
+
+**Acceptance Criteria:**
+
+**Given** les boîtes candidates au repère résolution détecteur (Story 8.3)
+**When** `RESCALE` est appliqué
+**Then** les coordonnées sont converties vers le repère image d'origine (1920×1080), avec la même valeur de stride nommée que la Story 8.3
+
+**Given** le seuil de score de détection dérivant `valid_mask`
+**When** `RESCALE` (ou l'étape immédiatement suivante) applique ce seuil
+**Then** il est lu depuis la config `JAX_DETECTOR`, jamais une constante privée dupliquée dans `inference_utils.py` (AD-15)
+
+**Given** les 20 slots (valides et invalides)
+**When** `RESCALE` est complété
+**Then** les slots invalides restent identifiables jusqu'à cette étape
+
+### Story 8.5: CROP différentiable + appel classification figée
+
+As a mainteneur du pipeline d'inférence,
+I want recadrer chaque détection via `map_coordinates` puis appeler la classification figée sur le batch de crops,
+So that chaque détection soit classée sans boucle de recadrage python ni cv2 (AD-11).
+
+**Acceptance Criteria:**
+
+**Given** les boîtes au repère image d'origine (Story 8.4) et l'image source pleine résolution
+**When** le crop est appliqué
+**Then** il utilise `jax.scipy.ndimage.map_coordinates` (ordre 1, bilinéaire), `vmap` sur les 20 slots fixes, avec la méthode validée en Story 8.1 (y compris le comportement en bord de cadre)
+
+**Given** le checkpoint `FIGHTERJET_CLASSIFICATION`
+**When** il est chargé pour la composition
+**Then** il suit le même principe de chargement figé, lecture seule, que la Story 8.2 (aucun réentraînement, AD-14/NFR1)
+
+**Given** le batch de crops 20×128×128
+**When** la classification figée est appelée
+**Then** elle retourne classes + class_scores pour les 20 slots (toujours remplis)
+
+### Story 8.6: Assemblage final — build_single_pass_predict_fn
+
+As a mainteneur du pipeline d'inférence,
+I want assembler les étapes 8.2 à 8.5 en une unique fonction JIT-compilée dans `inference_utils.py`,
+So that le graphe complet soit appelable en un seul point d'entrée, cohérent avec `build_predict_fn`/`build_clf_predict_fn` (AD-1 hérité, AD-16).
+
+**Acceptance Criteria:**
+
+**Given** les Stories 8.2 à 8.5 complétées
+**When** `build_single_pass_predict_fn` est implémentée dans `inference_utils.py`
+**Then** elle compose RESIZE→détecteur→pics/Top-K→RESCALE→CROP→classification en un seul callable, JIT-compilable de bout en bout
+
+**Given** les configs `JAX_DETECTOR` et `FIGHTERJET_CLASSIFICATION`
+**When** `build_single_pass_predict_fn` est construite
+**Then** elle les lit via `get_dataset_config()` sans les modifier (AD-16) — ce n'est pas une entrée `DATASET_CONFIGS`
+
+**Given** le contrat de sortie fixé par AD-15
+**When** `build_single_pass_predict_fn` retourne son résultat
+**Then** il s'agit exactement de `{boxes, classes, class_scores, detection_scores, valid_mask}`, 20 slots fixes, slots invalides à zéro
+
+**Given** `decode_segmentation_and_detect(_batch)` et `non_max_suppression` (ancien pipeline)
+**When** `build_single_pass_predict_fn` est créée
+**Then** ces fonctions ne sont ni modifiées ni appelées par ce nouveau chemin (AD-20)
+
+### Story 8.7: Migration bounding_boxes_with_classification_from_video_generation.py
+
+As a mainteneur du pipeline vidéo,
+I want que ce script utilise `build_single_pass_predict_fn` au lieu de l'orchestration manuelle actuelle,
+So that le pipeline vidéo bénéficie de la composition unifiée, sans régression de débit temps réel (AD-6 hérité).
+
+**Acceptance Criteria:**
+
+**Given** la Story 8.6 complétée
+**When** le script est migré
+**Then** il appelle `build_single_pass_predict_fn` au lieu de l'enchaînement `decode_segmentation_and_detect_batch` + crop manuel + `predict_crops_batch`
+
+**Given** une baseline de sortie capturée avant migration (boxes/classes/scores sur un jeu de vidéos fixe)
+**When** le script migré est exécuté sur le même jeu
+**Then** les résultats sont comparés à la baseline — tout écart documenté et justifié (ex. fusion de boîtes corrigée, FR3), pas silencieux
+
+**Given** le débit temps réel prioritaire (AD-6 hérité)
+**When** la migration est effectuée
+**Then** aucune dégradation n'est introduite (comparaison avant/après sur un extrait vidéo)
+
+**Given** AD-20
+**When** ce script est migré
+**Then** l'ancien chemin (`decode_segmentation_and_detect_batch`, etc.) reste disponible dans `inference_utils.py` et fonctionnel
+
+### Story 8.8: Migration tools/bounding_boxes_with_classification_from_images_generation.py
+
+As a mainteneur des outils d'inférence sur images,
+I want que ce script utilise `build_single_pass_predict_fn`,
+So that le traitement d'image statique bénéficie de la même composition unifiée.
+
+**Acceptance Criteria:**
+
+**Given** la Story 8.6 complétée
+**When** le script est migré
+**Then** il appelle `build_single_pass_predict_fn` au lieu de son orchestration actuelle
+
+**Given** une baseline de sortie capturée avant migration
+**When** le script migré est exécuté sur le même jeu d'images
+**Then** les résultats sont comparés à la baseline, tout écart documenté et justifié
+
+### Story 8.9: Validation finale — fusion de boîtes résolue + non-régression
+
+As a mainteneur du pipeline,
+I want valider que la fusion de boîtes est résolue sur un cas de formation serrée connu, et que l'ancien pipeline reste pleinement fonctionnel,
+So that FR3 et AD-20/NFR3 soient prouvés par exécution réelle.
+
+**Acceptance Criteria:**
+
+**Given** un cas de formation serrée déjà identifié (ex. vidéo du 14 juillet, `notes-jax-single-pass.md`) où l'ancien pipeline fusionne deux avions en une seule détection
+**When** ce cas est traité par `build_single_pass_predict_fn` (via les Stories 8.7/8.8)
+**Then** deux détections distinctes sont produites structurellement (précision réelle sur le chevauchement encore limitée par le manque de données, AD-19/CAP-3)
+
+**Given** `FIGHTERJET_DETECTION`, `AircraftDetectorUNet`, `DetectionStrategy`, `DetectionDataset` et leurs consommateurs (`tools/audit_dataset_detection.py`, `tools/boxes_process_manual_tkinter.py`)
+**When** cette story est complétée
+**Then** chacun est ré-exécuté et confirmé fonctionnel sans modification (AD-20)
+
+**Given** les Stories 8.1 à 8.8 complétées
+**When** cette story conclut l'Epic 8
+**Then** FR2, FR3, FR4 sont tous confirmés couverts et prouvés par exécution

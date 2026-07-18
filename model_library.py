@@ -3,11 +3,15 @@ Librairie des modèles de deep learning
 Contient tous les modèles utilisés pour l'entraînement
 """
 
+import math
+
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax.training import train_state
 import flax
+
+from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
 
 
 class SeparableConv(nn.Module):
@@ -415,6 +419,126 @@ def create_aircraft_detector_unet(dropout_rate=0.2, **kwargs):
     """Factory for UNet Detector"""
     return AircraftDetectorUNet(dropout_rate=dropout_rate)
 
+
+class AircraftDetectorCenterNet(nn.Module):
+    """
+    Détecteur d'avions par point central (style CenterNet, anchor-free)
+    Même famille d'architecture que AircraftDetectorUNet (AD-10 : pas de backbone+FPN).
+    Input: (B, H, W, C)
+    Output: dict {HEATMAP_KEY: (B, H, W, 1), SIZE_KEY: (B, H, W, 2)} — même résolution
+    (H, W) que l'entrée (stride=1), pas de sous-échantillonnage, pour rester compatible
+    avec le schéma de cibles de detection_target_encoding.py (Story 7.1).
+
+    heatmap_prior : proportion attendue de pixels positifs (gt_heatmap==1.0) dans le
+    dataset cible — sert à initialiser le biais de la tête heatmap (voir Story 7.2,
+    addendum post-hoc 2026-07-17). Défaut 0.01 = valeur générique du papier RetinaNet
+    (Lin et al. 2018, §3.3) ; JAX_DETECTOR utilise sa valeur mesurée réellement
+    (dataset_configs.py, ~2.68e-5, très inférieure au défaut générique car un seul pixel
+    par objet sur une grille 224×224, contrairement aux milliers d'ancres du papier
+    d'origine).
+    """
+    dropout_rate: float = 0.2
+    heatmap_prior: float = 0.01
+
+    @nn.compact
+    def __call__(self, x, training: bool = True):
+        # --- ENCODER --- (identique à AircraftDetectorUNet)
+        # Block 1 (H,W -> H/2,W/2)
+        x1 = nn.Conv(32, (3, 3), padding="SAME")(x)
+        x1 = nn.BatchNorm(use_running_average=not training)(x1)
+        x1 = nn.silu(x1)
+        x1 = nn.Conv(32, (3, 3), padding="SAME")(x1)
+        x1 = nn.BatchNorm(use_running_average=not training)(x1)
+        x1 = nn.silu(x1)
+        p1 = nn.max_pool(x1, window_shape=(2, 2), strides=(2, 2))
+
+        # Block 2 (H/2,W/2 -> H/4,W/4)
+        x2 = nn.Conv(64, (3, 3), padding="SAME")(p1)
+        x2 = nn.BatchNorm(use_running_average=not training)(x2)
+        x2 = nn.silu(x2)
+        x2 = nn.Conv(64, (3, 3), padding="SAME")(x2)
+        x2 = nn.BatchNorm(use_running_average=not training)(x2)
+        x2 = nn.silu(x2)
+        p2 = nn.max_pool(x2, window_shape=(2, 2), strides=(2, 2))
+
+        # Block 3 (H/4,W/4 -> H/8,W/8)
+        x3 = nn.Conv(128, (3, 3), padding="SAME")(p2)
+        x3 = nn.BatchNorm(use_running_average=not training)(x3)
+        x3 = nn.silu(x3)
+        x3 = nn.Conv(128, (3, 3), padding="SAME")(x3)
+        x3 = nn.BatchNorm(use_running_average=not training)(x3)
+        x3 = nn.silu(x3)
+        p3 = nn.max_pool(x3, window_shape=(2, 2), strides=(2, 2))
+
+        # --- BOTTLENECK ---
+        b = nn.Conv(256, (3, 3), padding="SAME")(p3)
+        b = nn.BatchNorm(use_running_average=not training)(b)
+        b = nn.silu(b)
+        b = nn.Conv(256, (3, 3), padding="SAME")(b)
+        b = nn.BatchNorm(use_running_average=not training)(b)
+        b = nn.silu(b)
+        b = nn.Dropout(self.dropout_rate, deterministic=not training)(b)
+
+        # --- DECODER --- (identique à AircraftDetectorUNet)
+        # Up 1
+        u1 = jax.image.resize(b, shape=(b.shape[0], x3.shape[1], x3.shape[2], b.shape[3]), method='bilinear')
+        u1 = nn.Conv(128, (2, 2), padding="SAME")(u1)
+        u1 = jnp.concatenate([u1, x3], axis=-1)
+        u1 = nn.Conv(128, (3, 3), padding="SAME")(u1)
+        u1 = nn.BatchNorm(use_running_average=not training)(u1)
+        u1 = nn.silu(u1)
+        u1 = nn.Conv(128, (3, 3), padding="SAME")(u1)
+        u1 = nn.BatchNorm(use_running_average=not training)(u1)
+        u1 = nn.silu(u1)
+
+        # Up 2
+        u2 = jax.image.resize(u1, shape=(u1.shape[0], x2.shape[1], x2.shape[2], u1.shape[3]), method='bilinear')
+        u2 = nn.Conv(64, (2, 2), padding="SAME")(u2)
+        u2 = jnp.concatenate([u2, x2], axis=-1)
+        u2 = nn.Conv(64, (3, 3), padding="SAME")(u2)
+        u2 = nn.BatchNorm(use_running_average=not training)(u2)
+        u2 = nn.silu(u2)
+        u2 = nn.Conv(64, (3, 3), padding="SAME")(u2)
+        u2 = nn.BatchNorm(use_running_average=not training)(u2)
+        u2 = nn.silu(u2)
+
+        # Up 3
+        u3 = jax.image.resize(u2, shape=(u2.shape[0], x1.shape[1], x1.shape[2], u2.shape[3]), method='bilinear')
+        u3 = nn.Conv(32, (2, 2), padding="SAME")(u3)
+        u3 = jnp.concatenate([u3, x1], axis=-1)
+        u3 = nn.Conv(32, (3, 3), padding="SAME")(u3)
+        u3 = nn.BatchNorm(use_running_average=not training)(u3)
+        u3 = nn.silu(u3)
+        u3 = nn.Conv(32, (3, 3), padding="SAME")(u3)
+        u3 = nn.BatchNorm(use_running_average=not training)(u3)
+        u3 = nn.silu(u3)
+
+        # --- OUTPUT : deux têtes paralleles ---
+        # Heatmap de centres (B,H,W,1), valeurs [0,1] (Story 7.1)
+        # Biais initial non nul (RetinaNet, Lin et al. 2018 §3.3) : l'init Flax par defaut
+        # (biais=0 -> sigmoid(0)=0.5 partout) fait que le volume massif de gradient de
+        # fond (pixels negatifs >> positifs) noie le signal des rares pixels-centres avant
+        # que le reseau ait pu apprendre a les differencier - collapse observe
+        # empiriquement en execution reelle (Story 7.8 : predictions quasi identiques aux
+        # centres et au fond apres 1 epoch, diagnose_heatmap_predictions.py). Corrige en
+        # demarrant sigmoid(biais) = heatmap_prior (la vraie proportion de positifs),
+        # au lieu de 0.5 non-informatif.
+        heatmap_bias_init = math.log(self.heatmap_prior / (1.0 - self.heatmap_prior))
+        heatmap = nn.Conv(1, (1, 1), padding="SAME", bias_init=nn.initializers.constant(heatmap_bias_init))(u3)
+        heatmap = nn.sigmoid(heatmap)
+
+        # Regression de taille (B,H,W,2) largeur/hauteur, pas d'activation
+        # (convention CenterNet standard - la perte, Story 7.3, gere la positivite)
+        size = nn.Conv(2, (1, 1), padding="SAME")(u3)
+
+        return {HEATMAP_KEY: heatmap, SIZE_KEY: size}
+
+
+def create_aircraft_detector_centernet(dropout_rate=0.2, heatmap_prior=0.01, **kwargs):
+    """Factory for CenterNet Detector"""
+    return AircraftDetectorCenterNet(dropout_rate=dropout_rate, heatmap_prior=heatmap_prior)
+
+
 # MiniUNet/conv_block/create_aircraft_detector_miniunet supprimés le 2026-07-15 : non utilisés par
 # aucune des 4 configs actives (seule référence était une ligne commentée dans dataset_configs.py),
 # aucun .pkl versionné n'en dépendait (vérifié : best_model_detection.pkl est aircraft_detector_unet).
@@ -470,6 +594,7 @@ def create_kepler_1d_cnn(**kwargs):
 
 MODELS = {
     'aircraft_detector_unet': create_aircraft_detector_unet, # Semantic Segmentation U-Net
+    'aircraft_detector_centernet': create_aircraft_detector_centernet, # CenterNet (point central, anchor-free)
     'sophisticated_cnn_128_plus': create_sophisticated_cnn_128_plus,
     'sophisticated_cnn_32_plus': create_sophisticated_cnn_32_plus,
     'kepler_1d_cnn': create_kepler_1d_cnn,

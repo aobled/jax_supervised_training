@@ -2,7 +2,8 @@ import jax
 import jax.numpy as jnp
 import optax
 from abc import ABC, abstractmethod
-from loss_functions import compute_grid_loss, compute_grid_loss_multilevel, compute_v7_loss, compute_segmentation_loss
+from loss_functions import compute_grid_loss, compute_grid_loss_multilevel, compute_v7_loss, compute_segmentation_loss, compute_centernet_loss
+from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
 from utils import mixup_batch, smooth_labels
 
 class TaskStrategy(ABC):
@@ -266,6 +267,108 @@ class DetectionStrategy(TaskStrategy):
             raise NotImplementedError("Le rapport 'yolo_boxes' doit être implémenté pour YOLO (dessin des boxes au lieu d'une heatmap).")
         else:
             print(f"⚠️ Méthode de rapport '{self.report_method}' non supportée pour la détection.")
+
+
+class CenterNetDetectionStrategy(TaskStrategy):
+    """
+    Stratégie dédiée à JAX_DETECTOR (heatmap+taille, AD-9/AD-17). Classe séparée de
+    DetectionStrategy (approche masque/segmentation) - ne la modifie ni ne l'étend.
+    outputs/targets sont des dicts {HEATMAP_KEY, SIZE_KEY} (Stories 7.2/7.3/7.5),
+    jamais un tenseur unique comme le fait DetectionStrategy.
+    """
+    def __init__(self, loss_params: dict = None):
+        self.loss_params = loss_params or {}
+
+    @property
+    def primary_metric_name(self) -> str:
+        return "HeatmapActivation"
+
+    @property
+    def optimization_mode(self) -> str:
+        return "max"
+
+    def _get_export_path(self, config) -> str:
+        return config.get("checkpoint_path") or f"best_model_{config.get('dataset_name', 'unknown').lower()}.pkl"
+
+    def get_training_state_path(self, config) -> str:
+        return config.get("training_state_path") or f"best_model_training_state_{config.get('dataset_name', 'unknown').lower()}.pkl"
+
+    def preprocess_batch(self, images, targets, is_training, rng=None):
+        # targets est deja un dict {HEATMAP_KEY, SIZE_KEY} (Story 7.5, batche par tf.data) -
+        # simple cast float32, pas de mixup/label smoothing (non pertinents pour la detection,
+        # meme choix que DetectionStrategy.preprocess_batch)
+        targets = jax.tree_util.tree_map(lambda t: jnp.asarray(t, dtype=jnp.float32), targets)
+        return images, targets, False
+
+    def compute_loss(self, outputs, targets, **kwargs):
+        return compute_centernet_loss(outputs, targets, **self.loss_params)
+
+    def compute_metrics(self, outputs, targets):
+        """
+        Metrique proxy JAX-native (HeatmapActivation) - pas un decode de boites complet.
+        decode_detection_targets (Story 7.1) est NumPy pur, incompatible avec le JIT de
+        trainer.py (voir Dev Notes de cette story) : une vraie precision/rappel de boites
+        est le travail de l'Epic 8 (Story 8.3, decode JAX-natif pour l'inference), pas
+        anticipe ici.
+
+        Addendum post-hoc (2026-07-18) : remplace un ancien HeatmapRecall a seuil dur
+        (fraction de pixels-centres reels ou pred>0.5) par la moyenne CONTINUE de la
+        prediction aux vrais pixels-centres. Le seuil dur masquait un vrai progres en
+        execution reelle (Story 7.8) - le modele apprenait deja une separation nette
+        centres/fond (confirme par diagnose_heatmap_predictions.py) alors que
+        HeatmapRecall restait a 0.0000 plusieurs epochs de suite, tant qu'aucune
+        prediction n'avait franchi 0.5. Cette metrique gate aussi la sauvegarde du
+        checkpoint (trainer.py, optimization_mode="max") - un seuil dur y etait
+        particulierement mal adapte : une progression reelle mais sous le seuil ne
+        produisait jamais de "New best model saved". La version continue reste
+        centree sur le heatmap uniquement (pas melangee a la taille comme le serait
+        val_loss), compatible JIT (pas de decode de boites), et visible dans le
+        reporting existant (train_acc/val_acc, TrainingVisualizer) sans aucun
+        changement necessaire ailleurs.
+        """
+        gt_heatmap = targets[HEATMAP_KEY]
+        pred_heatmap = outputs[HEATMAP_KEY]
+
+        is_positive = (gt_heatmap == 1.0)
+        num_pos = jnp.sum(is_positive.astype(jnp.float32))
+
+        sum_pred_at_positives = jnp.sum(jnp.where(is_positive, pred_heatmap, 0.0))
+
+        activation = jnp.where(num_pos > 0, sum_pred_at_positives / num_pos, 1.0)
+        return activation
+
+    def generate_reports(self, val_ds, final_state, model, config):
+        report_method = getattr(self, "report_method", "centernet_heatmap")
+        if report_method == "centernet_heatmap":
+            import cv2
+            import numpy as np
+            try:
+                for vis_imgs, vis_targets in val_ds.take(1).as_numpy_iterator():
+                    vars = {'params': final_state.params, 'batch_stats': final_state.batch_stats}
+                    pred_outputs = final_state.apply_fn(vars, vis_imgs, training=False)
+
+                    true_heatmap = vis_targets[HEATMAP_KEY]
+                    pred_heatmap = pred_outputs[HEATMAP_KEY]
+
+                    img0 = np.array(vis_imgs[0] * 255, dtype=np.uint8)
+                    true0 = np.array(true_heatmap[0] * 255, dtype=np.uint8)
+                    pred0 = np.array(pred_heatmap[0] * 255, dtype=np.uint8)
+
+                    pred0_flat = pred0[..., 0] if pred0.ndim == 3 and pred0.shape[-1] == 1 else pred0
+                    heatmap_vis = cv2.applyColorMap(pred0_flat, cv2.COLORMAP_JET)
+
+                    if img0.shape[-1] == 1:
+                        img0 = cv2.cvtColor(img0, cv2.COLOR_GRAY2BGR)
+                    true0 = cv2.cvtColor(true0, cv2.COLOR_GRAY2BGR)
+
+                    composite = cv2.hconcat([img0, true0, heatmap_vis])
+                    cv2.imwrite("final_detection_centernet_vis.png", composite)
+                    break
+                print("✅ Visualisation CenterNet générée (final_detection_centernet_vis.png)")
+            except Exception as e:
+                print(f"❌ Erreur lors de la visualisation CenterNet: {e}")
+        else:
+            print(f"⚠️ Méthode de rapport '{report_method}' non supportée pour CenterNetDetectionStrategy.")
 
 
 class KeplerStrategy(TaskStrategy):

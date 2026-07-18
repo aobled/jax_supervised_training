@@ -264,5 +264,5 @@ reporting_groupby_class_and_split(df)
 #reporting_at_least_one_box_not_in_class_list(df, class_list=CLASS_NAMES)
 
 #reporting_single_classe_images(df, target_class='f8', min_size=16)
-#reporting_all_images_in_class_list(df, class_list=['unknown', 'tu160'])
+reporting_all_images_in_class_list(df, class_list=['unknown', 't38'])
 #reporting_small_boxes(df, min_size=16)
