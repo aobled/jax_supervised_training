@@ -12,7 +12,7 @@ DETECTION_CHECKPOINT_PATH = "best_model_detection.pkl"
 HEATMAP_THRESHOLD = 0.7 # 30% de confiance minimum pour binariser la chaleur
 
 # Ajouter le répertoire racine
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from inference_utils import load_detection_model
 
 def detect_by_contouring(img_bgr, model, variables, config_model, threshold=0.3):

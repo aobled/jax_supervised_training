@@ -11,7 +11,7 @@ OUTPUT_PATH = "/home/aobled/Downloads/heatmap_output.jpg"
 DETECTION_CHECKPOINT_PATH = "best_model_detection.pkl"
 
 # Ajouter le répertoire racine
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from inference_utils import load_detection_model
 
 def generate_heatmap(img_bgr, model, variables, config_model):
