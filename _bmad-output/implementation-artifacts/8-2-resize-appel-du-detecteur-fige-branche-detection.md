@@ -70,7 +70,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_detector_inference_composition.py` — sortie complète : `load_detection_model("best_model_jax_detector.pkl")` charge `aircraft_detector_centernet` (assertion explicite passée), `build_predict_fn` retourne le dict `{HEATMAP_KEY, SIZE_KEY}` attendu sur un batch factice, `_resize_for_detector` vérifié géométrie-seule (pas de normalisation), composition complète 1920×1080×1 → `(1,224,224,1)`/`(1,224,224,2)` vérifiée. `git diff 30c1b47e... -- inference_utils.py` confirmé additif uniquement (`_resize_for_detector` + précision du docstring d'en-tête, aucune ligne de `load_detection_model`/`build_predict_fn` modifiée).
+`python3 tests/test_detector_inference_composition.py` — sortie complète : `load_detection_model("best_model_jax_detector.pkl")` charge `aircraft_detector_centernet` (assertion explicite passée), `build_predict_fn` retourne le dict `{HEATMAP_KEY, SIZE_KEY}` attendu sur un batch factice, `_resize_for_detector` vérifié géométrie-seule (pas de normalisation), composition complète 1920×1080×1 → `(1,224,224,1)`/`(1,224,224,2)` vérifiée. `git diff 30c1b47e... -- inference_utils.py` confirmé additif uniquement (`_resize_for_detector` + précision du docstring d'en-tête, aucune ligne de `load_detection_model`/`build_predict_fn` modifiée).
 
 ### Completion Notes List
 
@@ -83,7 +83,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 ### File List
 
 - `inference_utils.py` (modifié — ajout de `_resize_for_detector` + clarification du docstring d'en-tête ; `load_detection_model`/`build_predict_fn` non touchés)
-- `test_detector_inference_composition.py` (nouveau, racine) — script de vérification autonome (Tasks 2-4)
+- `tests/test_detector_inference_composition.py` (nouveau, racine) — script de vérification autonome (Tasks 2-4)
 
 ## Senior Developer Review (AI)
 

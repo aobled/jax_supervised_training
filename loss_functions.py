@@ -502,14 +502,45 @@ def compute_heatmap_focal_loss(pred_heatmap, gt_heatmap, alpha=2.0, beta=4.0):
 
 def compute_size_regression_loss(pred_size, gt_size):
     """
-    Perte L1 masquée aux positions de centres réels (gt_size > 0 en largeur ET hauteur),
-    normalisée par le nombre de centres réels. Pas de masque séparé à threader (Story 7.1).
+    Perte L1 EN ECHELLE LOGARITHMIQUE (pas lineaire brute), masquee aux positions de
+    centres reels (gt_size > 0 en largeur ET hauteur), normalisee par le nombre de
+    centres reels. Pas de masque separe a threader (Story 7.1).
+
+    Changement 2026-07-18 (discussion post-Epic 8, diagnostic sur checkpoint reel) :
+    la version lineaire d'origine (`jnp.abs(pred_size - gt_size)`) penalise une erreur
+    absolue donnee de la meme facon quelle que soit la taille de l'objet - une erreur de
+    30px sur une boite de 300px (10% d'erreur relative) pese donc autant qu'une erreur
+    de 30px sur une boite de 30px (100% d'erreur relative). Mesure empirique sur 21
+    boites annotees reelles (test_media/) : correlation -0.506 entre la taille de
+    l'objet et l'erreur RELATIVE de taille predite - les petits objets etaient
+    systematiquement moins bien regresses, les gros dominaient le gradient. La perte en
+    echelle log corrige ce desequilibre : une erreur RELATIVE donnee pese le meme poids
+    quelle que soit la taille absolue.
+
+    pred_size : sortie brute du reseau (aucun changement d'architecture - Conv sans
+    activation, deja un reel non contraint - desormais INTERPRETEE comme log(taille),
+    pas la taille elle-meme). gt_size : cibles en pixels bruts, INCHANGEES (schema
+    AD-18/.npz non modifie) - log-transformees ici, dans la perte, uniquement.
+
+    ATTENTION - checkpoint : un modele entraine avec l'ancienne perte lineaire produit
+    des valeurs de taille brutes en pixels, PAS des log-tailles - le decodage
+    (`_top_k_boxes`, `inference_utils.py`) applique desormais systematiquement `exp()`
+    sur la sortie du reseau, ce qui rend un ancien checkpoint (pre-2026-07-18) inutilisable
+    tel quel (des tailles predites de quelques unites, plausibles en echelle log,
+    deviendraient `exp(quelques unites)` = des tailles aberrantes) - reentrainement
+    complet requis avant tout usage en inference (Colab, JAX_DETECTOR).
     pred_size/gt_size: (Batch, H, W, 2)
     """
     epsilon = 1e-7
     mask = jnp.all(gt_size > 0.0, axis=-1, keepdims=True)  # (Batch, H, W, 1)
 
-    l1 = jnp.abs(pred_size - gt_size) * mask
+    # Evite log(0)/NaN de gradient sur les positions masquees (gt_size=0 hors des
+    # centres reels) : substitue une valeur sure (1.0, log(1.0)=0.0) la ou mask=False -
+    # le resultat est de toute facon annule par le masque juste apres.
+    safe_gt_size = jnp.where(gt_size > 0.0, gt_size, 1.0)
+    log_gt_size = jnp.log(safe_gt_size)
+
+    l1 = jnp.abs(pred_size - log_gt_size) * mask
 
     num_pos = jnp.sum(mask.astype(jnp.float32))
     loss = jnp.sum(l1) / (num_pos + epsilon)

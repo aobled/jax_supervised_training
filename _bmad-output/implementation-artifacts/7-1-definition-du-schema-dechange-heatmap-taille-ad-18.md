@@ -12,22 +12,22 @@ Status: done
 
 As a mainteneur du pipeline de détection,
 I want un module partagé qui encode des boîtes brutes en cibles heatmap+taille et les décode en retour,
-so that le producteur (`fighterjet_detection_dataset_tools_v2.py`, Story 7.4) et le consommateur (nouvelle classe `data_management.py`, Story 7.5) ne réimplémentent jamais indépendamment le même format, évitant une lecture croisée silencieusement incompatible (AD-18).
+so that le producteur (`dataset_builder/fighterjet_detection_dataset_tools_v2.py`, Story 7.4) et le consommateur (nouvelle classe `data_management.py`, Story 7.5) ne réimplémentent jamais indépendamment le même format, évitant une lecture croisée silencieusement incompatible (AD-18).
 
 ## Acceptance Criteria
 
-1. **Given** `raw_boxes` au format existant (`data["annotation"]["bbox"]`, liste de `[x, y, w, h]` en pixels de l'image source, format déjà utilisé par `fighterjet_detection_dataset_tools.py`) **When** `encode_detection_targets(...)` est appelée pour une image **Then** elle retourne un heatmap de centres `(H, W, 1)` gaussien + une carte de régression de taille `(H, W, 2)`, avec noms de clés, shapes, dtype et unités documentés explicitement dans la docstring (contrat AD-18).
+1. **Given** `raw_boxes` au format existant (`data["annotation"]["bbox"]`, liste de `[x, y, w, h]` en pixels de l'image source, format déjà utilisé par `dataset_builder/fighterjet_detection_dataset_tools.py`) **When** `encode_detection_targets(...)` est appelée pour une image **Then** elle retourne un heatmap de centres `(H, W, 1)` gaussien + une carte de régression de taille `(H, W, 2)`, avec noms de clés, shapes, dtype et unités documentés explicitement dans la docstring (contrat AD-18).
 2. **Given** les cibles produites par `encode_detection_targets` **When** `decode_detection_targets(...)` est appelée sur ces mêmes cibles (round-trip) **Then** les boîtes récupérées correspondent aux boîtes d'origine (repère `target_size`) à une tolérance near-exacte, vérifiée par un test explicite — pas une comparaison visuelle.
-3. **Given** AD-18 (source unique, `Binds:` cite explicitement 3 fichiers : `fighterjet_detection_dataset_tools_v2.py`, la nouvelle classe `data_management.py`, **et `loss_functions.py`**) **When** `fighterjet_detection_dataset_tools_v2.py` (Story 7.4), la nouvelle classe de `data_management.py` (Story 7.5) et les nouvelles fonctions de perte (Story 7.3) sont implémentées **Then** les trois importeront ces fonctions/constantes partagées (`encode_detection_targets`/`decode_detection_targets`/`HEATMAP_KEY`/`SIZE_KEY`, et pour la persistance disque `save_detection_targets_npz`/`load_detection_targets_npz`) ; aucune ne doit réimplémenter le format `.npz` (noms de clés inclus, pas seulement la forme du dict en mémoire) ou la géométrie du heatmap/de la carte de taille.
+3. **Given** AD-18 (source unique, `Binds:` cite explicitement 3 fichiers : `dataset_builder/fighterjet_detection_dataset_tools_v2.py`, la nouvelle classe `data_management.py`, **et `loss_functions.py`**) **When** `dataset_builder/fighterjet_detection_dataset_tools_v2.py` (Story 7.4), la nouvelle classe de `data_management.py` (Story 7.5) et les nouvelles fonctions de perte (Story 7.3) sont implémentées **Then** les trois importeront ces fonctions/constantes partagées (`encode_detection_targets`/`decode_detection_targets`/`HEATMAP_KEY`/`SIZE_KEY`, et pour la persistance disque `save_detection_targets_npz`/`load_detection_targets_npz`) ; aucune ne doit réimplémenter le format `.npz` (noms de clés inclus, pas seulement la forme du dict en mémoire) ou la géométrie du heatmap/de la carte de taille.
 4. **Given** cette story est un prérequis bloquant (même principe qu'AD-7 hérité / Story 1.2) **When** elle est complétée **Then** aucune story suivante de l'Epic 7 ne redéfinit le schéma d'échange — seules 7.4 et 7.5 l'importent.
 
 ## Tasks / Subtasks
 
 - [x] Task 1: Créer `detection_target_encoding.py` (nouveau fichier racine, convention plate du projet — voir Dev Notes) avec `encode_detection_targets(raw_boxes, orig_w, orig_h, target_size, max_boxes=20, min_overlap=0.7)` (AC: 1, 3)
-  - [x] Rescale `raw_boxes` `[x, y, w, h]` (pixels image source) → repère `target_size`, **réutiliser exactement** la formule déjà en place dans `fighterjet_detection_dataset_tools.py` (voir Dev Notes § Formule de rescale)
+  - [x] Rescale `raw_boxes` `[x, y, w, h]` (pixels image source) → repère `target_size`, **réutiliser exactement** la formule déjà en place dans `dataset_builder/fighterjet_detection_dataset_tools.py` (voir Dev Notes § Formule de rescale)
   - [x] Générer le heatmap gaussien `(H, W, 1)` float32 — un centre par boîte, rayon dérivé de `(w, h)` via la formule standard CornerNet/CenterNet (voir Dev Notes § Formule du rayon gaussien)
   - [x] Générer la carte de taille `(H, W, 2)` float32 (largeur, hauteur en pixels `target_size`) — non-nulle uniquement au pixel centre de chaque objet
-  - [x] Si plus de `max_boxes` boîtes réelles sur l'image : ne pas lever d'erreur, conserver les `max_boxes` avec la plus grande aire. **Note de vérification** : `fighterjet_detection_dataset_tools.py` accepte déjà `max_boxes` en paramètre (défaut 20, ligne 15, passé depuis `config.get("max_boxes", 20)` aux lignes 202/213) mais **ne l'utilise nulle part dans le corps de la fonction** — le commentaire de `dataset_configs.py:130` ("images avec plus de 20 boxes seront ignorées") décrit un comportement non implémenté dans l'outil actuel, pas un précédent réel à imiter. Ce comportement de plafonnement est donc une **décision nouvelle** pour ce module (cohérente avec la décision indépendante Story 8.3 "silent-cap-at-20-by-design" et avec l'intention documentée du commentaire), pas la continuation d'un comportement existant — à formuler ainsi dans le code/commit, pas comme "déjà fait ailleurs"
+  - [x] Si plus de `max_boxes` boîtes réelles sur l'image : ne pas lever d'erreur, conserver les `max_boxes` avec la plus grande aire. **Note de vérification** : `dataset_builder/fighterjet_detection_dataset_tools.py` accepte déjà `max_boxes` en paramètre (défaut 20, ligne 15, passé depuis `config.get("max_boxes", 20)` aux lignes 202/213) mais **ne l'utilise nulle part dans le corps de la fonction** — le commentaire de `dataset_configs.py:130` ("images avec plus de 20 boxes seront ignorées") décrit un comportement non implémenté dans l'outil actuel, pas un précédent réel à imiter. Ce comportement de plafonnement est donc une **décision nouvelle** pour ce module (cohérente avec la décision indépendante Story 8.3 "silent-cap-at-20-by-design" et avec l'intention documentée du commentaire), pas la continuation d'un comportement existant — à formuler ainsi dans le code/commit, pas comme "déjà fait ailleurs"
   - [x] Docstring précisant noms de clés du dict retourné, shapes exactes, dtype, unités (pixels vs normalisé), convention d'axes (H,W,C) — c'est le contrat AD-18 lui-même, pas une note accessoire
 - [x] Task 2: Implémenter `decode_detection_targets(heatmap, size, score_threshold=0.0)` — extraction non-JAX (numpy), pics locaux + lecture de la taille au pixel du pic (AC: 2). Fixer explicitement le voisinage utilisé pour la détection de maximum local (ex. fenêtre 3×3, cohérent avec un futur max-pooling JAX côté Epic 8). **Vérifié à l'implémentation** : pour ce round-trip précis, la taille de fenêtre s'avère sans effet sur le résultat — chaque pic de cible vraie culmine exactement à 1.0 (le sommet du noyau gaussien), donc deux pics voisins sont toujours à égalité exacte et une comparaison stricte (`score < voisinage.max()`) ne supprime jamais un pic à égalité, quelle que soit la taille de fenêtre. Le paramètre reste fixé et documenté par cohérence avec le futur décodage JAX de l'Epic 8 (Story 8.3), où de vraies prédictions de modèle n'auront pas cette propriété d'égalité exacte et où la taille de fenêtre redeviendra déterminante
 - [x] Task 3: Test de round-trip — encoder un jeu de boîtes connues (incluant un cas à 1 boîte, un cas à plusieurs boîtes proches, un cas à 0 boîte), décoder, comparer aux boîtes d'origine avec une tolérance documentée dans le test (AC: 2). **Étendu au-delà du texte initial** : un 4ᵉ cas (25 boîtes, plafond `max_boxes=20`) ajouté après coup — le sous-critère de plafonnement de Task 1 n'était couvert par aucun test avant cet ajout
@@ -43,7 +43,7 @@ so that le producteur (`fighterjet_detection_dataset_tools_v2.py`, Story 7.4) et
 
 ### Formule de rescale (réutiliser telle quelle, ne pas réinventer)
 
-Vérifiée dans `fighterjet_detection_dataset_tools.py:116-123` (fonction `process_detection_dataset`) :
+Vérifiée dans `dataset_builder/fighterjet_detection_dataset_tools.py:116-123` (fonction `process_detection_dataset`) :
 
 ```python
 raw_boxes = item['boxes']  # Liste de [x, y, w, h], pixels image source
@@ -55,7 +55,7 @@ for box in raw_boxes:
     y2 = int(((by + bh) / orig_h) * target_size[1])
 ```
 
-`target_size` est `(W, H)` (ex. `(224, 224)`), dérivé de `config["image_size"]`. `encode_detection_targets` doit produire le même résultat de rescale que ce code — c'est ce qui garantit que le nouveau chemin (Story 7.4) et l'ancien (`fighterjet_detection_dataset_tools.py`, non touché, AD-20) restent cohérents entre eux sur la géométrie, même s'ils divergent sur la cible finale (heatmap vs masque).
+`target_size` est `(W, H)` (ex. `(224, 224)`), dérivé de `config["image_size"]`. `encode_detection_targets` doit produire le même résultat de rescale que ce code — c'est ce qui garantit que le nouveau chemin (Story 7.4) et l'ancien (`dataset_builder/fighterjet_detection_dataset_tools.py`, non touché, AD-20) restent cohérents entre eux sur la géométrie, même s'ils divergent sur la cible finale (heatmap vs masque).
 
 ### Formule du rayon gaussien (CornerNet/CenterNet, ne pas improviser)
 
@@ -87,12 +87,12 @@ Le rayon obtenu paramètre l'écart-type d'un noyau gaussien 2D centré sur `(cx
 ### Convention de shape/repère
 
 - `target_size` = `(W, H)`, ex. `(224, 224)` — vient de `config["image_size"]`.
-- Tableaux retournés en `(H, W, C)` — même convention que `mask_array = np.zeros(target_size[::-1] + (1,), dtype=np.float32)` déjà utilisée dans `fighterjet_detection_dataset_tools.py:114`. Rester cohérent avec cette convention existante, ne pas introduire `(W, H, C)`.
+- Tableaux retournés en `(H, W, C)` — même convention que `mask_array = np.zeros(target_size[::-1] + (1,), dtype=np.float32)` déjà utilisée dans `dataset_builder/fighterjet_detection_dataset_tools.py:114`. Rester cohérent avec cette convention existante, ne pas introduire `(W, H, C)`.
 
 ### Project Structure Notes
 
 - Nouveau fichier `detection_target_encoding.py` à la racine du projet — cohérent avec la convention plate déjà en place (`loss_functions.py`, `data_management.py`, `task_strategies.py` sont tous des fichiers racine, pas de package imbriqué).
-- `fighterjet_detection_dataset_tools.py` (l'outil actuel, approche masque) : **fichier UPDATE zéro** — cette story ne le touche pas, ne le lit que comme référence (AD-20, non-régression garantie ailleurs).
+- `dataset_builder/fighterjet_detection_dataset_tools.py` (l'outil actuel, approche masque) : **fichier UPDATE zéro** — cette story ne le touche pas, ne le lit que comme référence (AD-20, non-régression garantie ailleurs).
 - Aucun conflit détecté avec la structure existante.
 
 ### Testing Standards
@@ -101,7 +101,7 @@ Pas de suite de tests automatisée formelle dans ce projet (confirmé PRD histor
 
 ### References
 
-- [Source: `fighterjet_detection_dataset_tools.py:69-123`] — format `raw_boxes`, formule de rescale, convention de shape du masque actuel
+- [Source: `dataset_builder/fighterjet_detection_dataset_tools.py:69-123`] — format `raw_boxes`, formule de rescale, convention de shape du masque actuel
 - [Source: `dataset_configs.py:120-149`] — `FIGHTERJET_DETECTION` : `num_classes=1`, `class_names=['aircraft']`, `image_size=(224,224)`, `max_boxes=20`
 - [Source: `_bmad-output/planning-artifacts/architecture/architecture-jax_supervised_training-2026-07-15/ARCHITECTURE-SPINE.md#AD-18`] — contrat "source unique" pour le schéma d'échange
 - [Source: `_bmad-output/planning-artifacts/architecture/architecture-jax_supervised_training-2026-07-15/ARCHITECTURE-SPINE.md#AD-9`] — tête heatmap+taille, anchor-free, scope exact (pas d'offset)
@@ -116,15 +116,15 @@ Claude Sonnet 5
 
 ### Debug Log References
 
-- `python3 test_detection_target_encoding.py` — 4/4 tests passés (0 boîte, 1 boîte, boîtes proches AD-19, plafond max_boxes=20)
+- `python3 tests/test_detection_target_encoding.py` — 4/4 tests passés (0 boîte, 1 boîte, boîtes proches AD-19, plafond max_boxes=20)
 - Sanity check du pouvoir discriminant du test "boîtes proches" (`peak_window` 3/21/51) — a révélé que les pics de cibles vraies culminent toujours exactement à 1.0 (égalité exacte), rendant `peak_window` sans effet sur ce round-trip précis ; corrigé la justification erronée initiale dans la story et la docstring en conséquence (voir Completion Notes)
 - Code review indépendante (Opus 4.8, `bmad-code-review`) : 2 décisions MEDIUM + 4 patchs LOW trouvés (voir § Review Findings ci-dessus). Le finding le plus sérieux (formule du rayon gaussien, signe `+`/`-` inversé) vérifié manuellement avant correction — calcul direct confirmant `-sq` pour r1/r2, pas seulement la parole du reviewer.
-- `python3 test_detection_target_encoding.py` (après corrections) — 6/6 tests passés (les 4 précédents + `test_peak_window_invariance_on_true_targets` + `test_npz_save_load_roundtrip`, tous deux ajoutés pour couvrir les patchs)
+- `python3 tests/test_detection_target_encoding.py` (après corrections) — 6/6 tests passés (les 4 précédents + `test_peak_window_invariance_on_true_targets` + `test_npz_save_load_roundtrip`, tous deux ajoutés pour couvrir les patchs)
 
 ### Completion Notes List
 
-- Implémenté `encode_detection_targets`/`decode_detection_targets` dans le nouveau `detection_target_encoding.py` (racine, convention plate du projet). Formule de rescale reprise à l'identique de `fighterjet_detection_dataset_tools.py:116-123` (géométrie ; précision intermédiaire volontairement sous-pixel, voir patch ci-dessous) ; formule du rayon gaussien = référence standard CornerNet/CenterNet (Law & Deng 2018 / Zhou et al. 2019).
-- **Correction pendant l'implémentation** : Task 1 justifiait le plafonnement `max_boxes` par un "précédent existant" — vérifié faux : `fighterjet_detection_dataset_tools.py` accepte `max_boxes` en paramètre mais ne l'utilise jamais dans son corps. Reformulé dans la story comme décision nouvelle plutôt que continuation d'un comportement réel.
+- Implémenté `encode_detection_targets`/`decode_detection_targets` dans le nouveau `detection_target_encoding.py` (racine, convention plate du projet). Formule de rescale reprise à l'identique de `dataset_builder/fighterjet_detection_dataset_tools.py:116-123` (géométrie ; précision intermédiaire volontairement sous-pixel, voir patch ci-dessous) ; formule du rayon gaussien = référence standard CornerNet/CenterNet (Law & Deng 2018 / Zhou et al. 2019).
+- **Correction pendant l'implémentation** : Task 1 justifiait le plafonnement `max_boxes` par un "précédent existant" — vérifié faux : `dataset_builder/fighterjet_detection_dataset_tools.py` accepte `max_boxes` en paramètre mais ne l'utilise jamais dans son corps. Reformulé dans la story comme décision nouvelle plutôt que continuation d'un comportement réel.
 - **Correction pendant l'implémentation** : la justification de `peak_window=3` ("évite la fusion de pics proches") s'est avérée inexacte pour ce round-trip précis — testé empiriquement (`peak_window` 3/21/51, même résultat) : les pics de cibles vraies sont toujours à égalité exacte (1.0), donc jamais fusionnés par la comparaison stricte utilisée, quelle que soit la fenêtre. Corrigé dans la story et la docstring du module — le paramètre reste pertinent pour le futur décodage JAX de l'Epic 8 (vraies prédictions, jamais à égalité exacte), pas pour ce round-trip.
 - **Ajout au-delà du texte initial de Task 3** : un test du plafonnement `max_boxes` (25 boîtes → 20 conservées, les 5 plus petites écartées) — ce sous-critère de Task 1 n'était couvert par aucun test prévu.
 - **Après code review indépendante (Opus 4.8)** : bug réel trouvé et corrigé — la formule du rayon gaussien utilisait `+sq` au lieu de `-sq` pour r1/r2 (erreur de recopie, rayon ~3× trop grand), vérifié manuellement avant correction. Ajout de `HEATMAP_KEY`/`SIZE_KEY` + `save_detection_targets_npz`/`load_detection_targets_npz` pour fermer réellement le contrat de sérialisation AD-18 (auparavant seule la forme du dict en mémoire était centralisée, pas les clés `.npz` elles-mêmes). 4 patchs de documentation/robustesse appliqués (voir § Review Findings). 2 nouveaux tests ajoutés (`test_peak_window_invariance_on_true_targets`, `test_npz_save_load_roundtrip`) rendant vérifiables des affirmations qui n'étaient auparavant que des notes manuelles.
@@ -134,7 +134,7 @@ Claude Sonnet 5
 ### File List
 
 - `detection_target_encoding.py` (nouveau)
-- `test_detection_target_encoding.py` (nouveau)
+- `tests/test_detection_target_encoding.py` (nouveau)
 
 ## Review Findings
 

@@ -5,6 +5,9 @@
 /errors
 /__pycache__
 /tools/__pycache__
+/tests/__pycache__
+/archive/__pycache__
+/dataset_builder/__pycache__
 /sauv
 /test
 .npz

@@ -230,6 +230,17 @@ def _top_k_boxes(heatmap, size, k=20):
     VRAIES predictions de modele (hors scope de cette story) produirait une boite
     degeneree non filtree. A verifier/traiter en Story 8.6 (assemblage complet sur
     predictions reelles), pas ici.
+
+    `size` est toujours interpretee ICI en echelle LINEAIRE (pixels bruts) - fonction
+    generique de decode geometrique, reutilisee a la fois sur des cibles encodees
+    (`encode_detection_targets`, toujours lineaires, AD-18 - voir
+    tests/test_peak_extraction_topk.py, Story 8.3) ET, cote appelant, sur la sortie reelle du
+    detecteur. Depuis le changement de perte 2026-07-18
+    (`compute_size_regression_loss`, log-scale), la sortie BRUTE du detecteur est en
+    echelle log - c'est a l'appelant reel (`build_single_pass_predict_fn`, seul endroit
+    qui sait qu'il manipule une vraie prediction modele, pas une cible) d'appliquer
+    `exp()` AVANT d'appeler cette fonction, jamais ici (garder ce decode generique,
+    scale-agnostique, cf. AD-1 herite - une fonction, un contrat clair).
     """
     H, W = heatmap.shape
     flat_heatmap = heatmap.reshape(-1)
@@ -298,7 +309,7 @@ def _differentiable_crop(image, boxes, crop_size=(128, 128)):
     avec la branche detection - jamais normalisee ici, precondition tranchee en Story 8.2).
     boxes : (20,4) = (x1,y1,x2,y2), repere image d'origine (Story 8.4).
     Formule demi-pixel + mode hors-limites : identiques a Story 8.1
-    (`test_pixel_parity.py::_map_coordinates_crop`), pas une nouvelle hypothese.
+    (`tests/test_pixel_parity.py::_map_coordinates_crop`), pas une nouvelle hypothese.
 
     Correction (execution Story 8.5, 2026-07-18) : les boites sont TRONQUEES A
     L'ENTIER ici avant le crop. Les Dev Notes originales de cette story affirmaient
@@ -534,7 +545,11 @@ def build_single_pass_predict_fn(
 
         heatmap_size = detector_predict_fn(resized_norm[None, ...])
         heatmap = heatmap_size[HEATMAP_KEY][0]  # debatchage (Story 8.3)
-        size_map = heatmap_size[SIZE_KEY][0]
+        # Sortie BRUTE du detecteur en echelle LOGARITHMIQUE depuis le changement de
+        # perte 2026-07-18 (compute_size_regression_loss) - exp() ici, au seul endroit
+        # qui sait qu'il s'agit d'une vraie prediction modele (pas une cible encodee) -
+        # _top_k_boxes reste generique/scale-agnostique (Story 8.3, AD-1 herite).
+        size_map = jnp.exp(heatmap_size[SIZE_KEY][0])
 
         filtered_heatmap = _extract_peaks(heatmap)
         boxes_det, scores = _top_k_boxes(filtered_heatmap, size_map, k=20)

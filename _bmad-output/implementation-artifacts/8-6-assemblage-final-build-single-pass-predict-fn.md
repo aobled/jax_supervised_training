@@ -81,7 +81,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_single_pass_predict_fn.py` — sortie complète (exécuté avec `JAX_PLATFORMS=cpu`, voir note environnement ci-dessous) : `build_single_pass_predict_fn()` charge les deux checkpoints réels (`best_model_jax_detector.pkl`, `best_model.pkl`) une seule fois, `predict_fn(image)` sur une image factice 1920×1080 grayscale retourne les 5 clés exactes avec les formes/dtypes attendus, aucun NaN, cohérence `valid_mask`/`detection_scores` vérifiée, réutilisation du même `predict_fn` sur deux images différentes confirmée, aucun appel réel (analyse AST) à `decode_segmentation_and_detect(_batch)`/`non_max_suppression`. `git diff 30c1b47e... -- inference_utils.py` confirmé additif uniquement.
+`python3 tests/test_single_pass_predict_fn.py` — sortie complète (exécuté avec `JAX_PLATFORMS=cpu`, voir note environnement ci-dessous) : `build_single_pass_predict_fn()` charge les deux checkpoints réels (`best_model_jax_detector.pkl`, `best_model.pkl`) une seule fois, `predict_fn(image)` sur une image factice 1920×1080 grayscale retourne les 5 clés exactes avec les formes/dtypes attendus, aucun NaN, cohérence `valid_mask`/`detection_scores` vérifiée, réutilisation du même `predict_fn` sur deux images différentes confirmée, aucun appel réel (analyse AST) à `decode_segmentation_and_detect(_batch)`/`non_max_suppression`. `git diff 30c1b47e... -- inference_utils.py` confirmé additif uniquement.
 
 **Note environnement (non liée au code)** : le premier essai sur le backend GPU par défaut a échoué avec `XlaRuntimeError: Failed to allocate 524288 bytes` (512Ko) — GPU local contendu par un autre processus (Spyder), cohérent avec un incident similaire déjà rencontré et documenté plus tôt dans cette session pour du profilage. Contourné via `JAX_PLATFORMS=cpu`, comme précédemment. Aucune conséquence sur la logique de `build_single_pass_predict_fn` — à revalider sur GPU non contendu (ex. Colab) avant la Story 8.9.
 
@@ -95,7 +95,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 ### File List
 
 - `inference_utils.py` (modifié — ajout de `build_single_pass_predict_fn` + 2 imports ; aucune fonction existante des Stories 8.2-8.5 ni de l'ancien pipeline touchée)
-- `test_single_pass_predict_fn.py` (nouveau, racine) — script de vérification autonome (Tasks 4-5)
+- `tests/test_single_pass_predict_fn.py` (nouveau, racine) — script de vérification autonome (Tasks 4-5)
 
 ## Senior Developer Review (AI)
 

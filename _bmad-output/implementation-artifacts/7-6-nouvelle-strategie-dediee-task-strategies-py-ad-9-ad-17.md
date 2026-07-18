@@ -72,7 +72,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_centernet_detection_strategy.py` — 6/6 tests passés (cast float32 du dict `targets`, loss finie/positive, métrique `HeatmapRecall` dans `[0,1]` avec prédiction parfaite=1.0/nulle=0.0, absence de NaN sur batch sans objet réel + convention recall=1.0, chemins d'export dérivés de `dataset_name`, `primary_metric_name`/`optimization_mode`).
+`python3 tests/test_centernet_detection_strategy.py` — 6/6 tests passés (cast float32 du dict `targets`, loss finie/positive, métrique `HeatmapRecall` dans `[0,1]` avec prédiction parfaite=1.0/nulle=0.0, absence de NaN sur batch sans objet réel + convention recall=1.0, chemins d'export dérivés de `dataset_name`, `primary_metric_name`/`optimization_mode`).
 
 ### Completion Notes List
 
@@ -89,7 +89,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 - `task_strategies.py` (modifié — ajout `CenterNetDetectionStrategy`, imports `compute_centernet_loss`/`HEATMAP_KEY`/`SIZE_KEY`)
 - `trainer.py` (modifié — 2 lignes, `jnp.array` → `jax.tree_util.tree_map(jnp.array, ...)`, générique/non-régressif)
-- `test_centernet_detection_strategy.py` (nouveau)
+- `tests/test_centernet_detection_strategy.py` (nouveau)
 
 ## Senior Developer Review (AI)
 
@@ -104,7 +104,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 - **Vérification empirique du point le plus critique (AC5)** : `jax.tree_util.tree_map(jnp.array, ...)` confirmé comportementalement identique à l'ancien `jnp.array(...)` sur un tableau simple (traité comme feuille unique, dtype préservé) ; confirmé correct sur un dict `{HEATMAP_KEY, SIZE_KEY}`, `labels` circulant sans être touché (`.shape`/`.dtype`/arithmétique) avant `preprocess_batch` à l'intérieur du `@jax.jit`.
 - Convention `num_pos==0 → recall=1.0` confirmée jamais NaN (la branche `where` non sélectionnée sur `0/0` est sans conséquence puisque `compute_metrics` n'est jamais différenciée).
 - `git diff 30c1b47 -- main.py dataset_configs.py` : vide, confirmant que cette story ne câble rien (Story 7.7).
-- `python3 test_centernet_detection_strategy.py` ré-exécuté : 6/6 passés.
+- `python3 tests/test_centernet_detection_strategy.py` ré-exécuté : 6/6 passés.
 
 ### Findings
 
@@ -115,10 +115,10 @@ Aucun HIGH/MEDIUM. Trois LOW non bloquants, non appliqués (périmètre de la st
 
 ## Addendum post-hoc (2026-07-18, pendant l'exécution réelle de la Story 7.8)
 
-**`HeatmapRecall` remplacée par `HeatmapActivation` — le seuil dur masquait un vrai progrès, y compris pour la sélection de checkpoint.** Constat direct de l'utilisateur en observant l'entraînement réel : `HeatmapRecall` restait à `0.0000` sur plusieurs epochs consécutives alors que le diagnostic (`diagnose_heatmap_predictions.py`, addendum Story 7.2) montrait une vraie séparation centres/fond en cours d'apprentissage (ratio 20x). Cause : `compute_metrics` comparait `pred_heatmap > 0.5` — un seuil binaire qui ne peut refléter aucune progression tant qu'il n'est pas franchi. Problème aggravé par le fait que cette même métrique gate `trainer.py`'s `is_better`/sauvegarde de checkpoint (`optimization_mode="max"`) : une amélioration réelle mais sous le seuil ne déclenchait jamais `[✓] New best model saved`.
+**`HeatmapRecall` remplacée par `HeatmapActivation` — le seuil dur masquait un vrai progrès, y compris pour la sélection de checkpoint.** Constat direct de l'utilisateur en observant l'entraînement réel : `HeatmapRecall` restait à `0.0000` sur plusieurs epochs consécutives alors que le diagnostic (`archive/diagnose_heatmap_predictions.py`, addendum Story 7.2) montrait une vraie séparation centres/fond en cours d'apprentissage (ratio 20x). Cause : `compute_metrics` comparait `pred_heatmap > 0.5` — un seuil binaire qui ne peut refléter aucune progression tant qu'il n'est pas franchi. Problème aggravé par le fait que cette même métrique gate `trainer.py`'s `is_better`/sauvegarde de checkpoint (`optimization_mode="max"`) : une amélioration réelle mais sous le seuil ne déclenchait jamais `[✓] New best model saved`.
 
 **Correctif** : `compute_metrics` retourne désormais la **moyenne continue** de `pred_heatmap` aux vrais pixels-centres (`gt_heatmap==1.0`), au lieu de la fraction au-dessus d'un seuil. `primary_metric_name` renommé `"HeatmapActivation"` (plus honnête — ce n'est plus statistiquement un rappel). Paramètre `metric_threshold` devenu inutile, retiré de `__init__`, `main.py` et `dataset_configs.py::JAX_DETECTOR` (suppression propre, pas de compat descendante inutile). Convention `num_pos==0 → 1.0` conservée (pas d'objet réel = rien à pénaliser).
 
 **Aucun changement requis dans `reporting.py`/`TrainingVisualizer`** : vérifié que `train_acc`/`val_acc` (historique, graphiques) proviennent directement de `compute_metrics()` (`trainer.py:193,216`, `TrainingVisualizer` appelée automatiquement chaque epoch) — la nouvelle métrique continue s'y affiche déjà correctement (échelle 0-100%) sans modification de `reporting.py`.
 
-Test dédié ajouté (`test_compute_metrics_is_continuous_not_thresholded`) : une prédiction uniforme à 0,3 (sous l'ancien seuil 0,5) doit désormais remonter ~0,3, pas 0,0 — preuve directe que le défaut identifié est corrigé. Tous les tests concernés (`test_centernet_detection_strategy.py`, `test_jax_detector_config.py`) re-passés, aucune régression sur les 4 autres configs (`FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`, `CIFAR10`).
+Test dédié ajouté (`test_compute_metrics_is_continuous_not_thresholded`) : une prédiction uniforme à 0,3 (sous l'ancien seuil 0,5) doit désormais remonter ~0,3, pas 0,0 — preuve directe que le défaut identifié est corrigé. Tous les tests concernés (`tests/test_centernet_detection_strategy.py`, `tests/test_jax_detector_config.py`) re-passés, aucune régression sur les 4 autres configs (`FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`, `CIFAR10`).

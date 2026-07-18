@@ -371,11 +371,11 @@ DATASET_CONFIGS = {
         "num_classes": 1,  # Detection mono-classe (Story 7.1)
         "class_names": ['aircraft'],
         # Le nom de base doit correspondre exactement au préfixe codé en dur dans
-        # fighterjet_detection_dataset_tools_v2.py (Story 7.4) pour que le glob de
+        # dataset_builder/fighterjet_detection_dataset_tools_v2.py (Story 7.4) pour que le glob de
         # CenterNetDetectionDataset (Story 7.5) trouve les chunks.
         "output_prefix": f"{DATA_ROOT}/chunks/jax_detector/jax_detector_targets",
         # Pic memoire pendant la generation ~ chunk_size x 784 Ko x 2 (liste Python + tableau
-        # numpy empile simultanement, fighterjet_detection_dataset_tools_v2.py::_save_chunk_v2) -
+        # numpy empile simultanement, dataset_builder/fighterjet_detection_dataset_tools_v2.py::_save_chunk_v2) -
         # 3000 = ~4.5 Go, valide sur la machine locale (30 Go RAM + 2 Go swap). Recalculer avant
         # d'augmenter sur un environnement avec plus de RAM (ex. Colab).
         "chunk_size": 13000,

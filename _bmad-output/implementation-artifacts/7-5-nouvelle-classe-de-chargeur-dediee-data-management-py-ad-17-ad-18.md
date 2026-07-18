@@ -42,7 +42,7 @@ Flip (horizontal/vertical) et translation n'ont pas ce problème : ce sont des r
 
 ### Dépendance de nommage avec Story 7.4 et Story 7.7
 
-Le préfixe de fichier choisi par la Story 7.4 (`jax_detector_targets_{split}_chunk{idx}.npz`, voir ses Dev Notes) doit correspondre à la valeur `output_prefix` que la Story 7.7 mettra dans la config `JAX_DETECTOR` — même couplage implicite (nom de fichier codé en dur côté outil de préparation, `output_prefix` côté config) que le pattern déjà existant entre `fighterjet_detection_dataset_tools.py::_save_chunk` (préfixe `"dataset_detection"` codé en dur) et `FIGHTERJET_DETECTION.output_prefix`. Cette story elle-même ne code aucun préfixe en dur — elle utilise `output_prefix` tel que passé par la config, comme `DetectionDataset` le fait déjà.
+Le préfixe de fichier choisi par la Story 7.4 (`jax_detector_targets_{split}_chunk{idx}.npz`, voir ses Dev Notes) doit correspondre à la valeur `output_prefix` que la Story 7.7 mettra dans la config `JAX_DETECTOR` — même couplage implicite (nom de fichier codé en dur côté outil de préparation, `output_prefix` côté config) que le pattern déjà existant entre `dataset_builder/fighterjet_detection_dataset_tools.py::_save_chunk` (préfixe `"dataset_detection"` codé en dur) et `FIGHTERJET_DETECTION.output_prefix`. Cette story elle-même ne code aucun préfixe en dur — elle utilise `output_prefix` tel que passé par la config, comme `DetectionDataset` le fait déjà.
 
 ### Project Structure Notes
 
@@ -70,7 +70,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_centernet_detection_dataset.py` — 2/2 tests passés (chargement sans augmentation : clés/shapes/pic heatmap=1.0 ; zoom déterministe forcé via monkeypatch de `tf.random.uniform` : pic heatmap préservé, carte de taille ponctuelle, valeur rescalée par `scale`, non clippée à `[0,1]`).
+`python3 tests/test_centernet_detection_dataset.py` — 2/2 tests passés (chargement sans augmentation : clés/shapes/pic heatmap=1.0 ; zoom déterministe forcé via monkeypatch de `tf.random.uniform` : pic heatmap préservé, carte de taille ponctuelle, valeur rescalée par `scale`, non clippée à `[0,1]`).
 
 ### Completion Notes List
 
@@ -81,12 +81,12 @@ Claude Sonnet 5 (claude-sonnet-5)
 - **`tf.clip_by_value(0,1)` appliqué uniquement au heatmap, jamais à la taille** (Task 4bis) — vérifié empiriquement par le test (`augmented_w > 1.0`, une valeur de ~32px survit intacte, un clip l'aurait écrasée à 1.0).
 - Brightness/contrast restent appliqués uniquement à l'image (Task 4ter), non touchés.
 - `get_dataset()` identique au pattern `DetectionDataset.get_dataset()` (train augmenté, val non augmenté).
-- Test Task 6 : chunk réel produit via `fighterjet_detection_dataset_tools_v2.py` (Story 7.4) sur un jeu synthétique à bbox connue, `do_zoom=True`/`scale=1.15` forcés de façon déterministe par monkeypatch de `tf.random.uniform` (distinction par arguments par défaut vs bornes explicites) — pas de dépendance au tirage aléatoire, conforme à la demande explicite de la story.
+- Test Task 6 : chunk réel produit via `dataset_builder/fighterjet_detection_dataset_tools_v2.py` (Story 7.4) sur un jeu synthétique à bbox connue, `do_zoom=True`/`scale=1.15` forcés de façon déterministe par monkeypatch de `tf.random.uniform` (distinction par arguments par défaut vs bornes explicites) — pas de dépendance au tirage aléatoire, conforme à la demande explicite de la story.
 
 ### File List
 
 - `data_management.py` (modifié — ajout `CenterNetDetectionDataset`, import `HEATMAP_KEY`/`SIZE_KEY`)
-- `test_centernet_detection_dataset.py` (nouveau)
+- `tests/test_centernet_detection_dataset.py` (nouveau)
 
 ## Senior Developer Review (AI)
 

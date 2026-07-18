@@ -15,7 +15,7 @@ Status: done (validation partielle — voir Dev Notes)
 - `get_model()` instancie sans erreur les 4 architectures survivantes (Story 2.3).
 - `best_model.pkl` (`sophisticated_cnn_128_plus`) et `best_model_detection.pkl` (`aircraft_detector_unet`) se rechargent et produisent des prédictions **bit-identiques à la baseline pré-refactor** via le pipeline d'inférence migré complet (Epic 1) + `model_library.py`/`dataset_configs.py` purgés (Epic 2) — `verify_after_migration.py`, 11/11 comparaisons OK.
 - Les 3 configs restantes (`FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`) se chargent et se valident (`get_dataset_config` + `validate_config`) sans erreur.
-- `fighterjet_classification_dataset_tools.py`/`fighterjet_detection_dataset_tools.py` : syntaxe valide, imports résolus ; seul le premier importe `dataset_configs` (déjà vérifié fonctionnel), le second n'a aucune exposition à Epic 2.
+- `dataset_builder/fighterjet_classification_dataset_tools.py`/`dataset_builder/fighterjet_detection_dataset_tools.py` : syntaxe valide, imports résolus ; seul le premier importe `dataset_configs` (déjà vérifié fonctionnel), le second n'a aucune exposition à Epic 2.
 
 ### Ce qui n'a PAS été exécuté dans cette session (décision utilisateur explicite)
 

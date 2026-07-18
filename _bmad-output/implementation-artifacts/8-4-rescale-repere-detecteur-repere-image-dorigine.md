@@ -16,7 +16,7 @@ so that les coordonnées de boîte soient ramenées dans le repère de l'image s
 
 ## Acceptance Criteria
 
-1. **Given** les boîtes candidates au repère résolution détecteur (Story 8.3, ex. `224×224`) **When** `RESCALE` est appliqué **Then** les coordonnées sont converties vers le repère image d'origine (1920×1080, AD-12) par l'**inverse exact** de la convention demi-pixel utilisée par `RESIZE` (Story 8.1/8.2) — pas une simple multiplication (voir Task 1, un écart systématique de plusieurs pixels serait introduit sinon) — avec un étirement non-uniforme par axe si le détecteur n'est pas au même ratio que 1920×1080 (cohérent avec le "stretched resizing" déjà utilisé par `fighterjet_detection_dataset_tools.py:102-104` plutôt qu'un letterbox), et la même valeur nommée de `image_size_detecteur` que la Story 8.3.
+1. **Given** les boîtes candidates au repère résolution détecteur (Story 8.3, ex. `224×224`) **When** `RESCALE` est appliqué **Then** les coordonnées sont converties vers le repère image d'origine (1920×1080, AD-12) par l'**inverse exact** de la convention demi-pixel utilisée par `RESIZE` (Story 8.1/8.2) — pas une simple multiplication (voir Task 1, un écart systématique de plusieurs pixels serait introduit sinon) — avec un étirement non-uniforme par axe si le détecteur n'est pas au même ratio que 1920×1080 (cohérent avec le "stretched resizing" déjà utilisé par `dataset_builder/fighterjet_detection_dataset_tools.py:102-104` plutôt qu'un letterbox), et la même valeur nommée de `image_size_detecteur` que la Story 8.3.
 2. **Given** les 20 slots (valides et invalides, `valid_mask` déjà dérivé en Story 8.3) **When** `RESCALE` est complété **Then** `valid_mask` traverse cette étape sans modification — `RESCALE` ne touche que les coordonnées, jamais les scores ni le masque de validité.
 
 ## Tasks / Subtasks
@@ -50,7 +50,7 @@ Script autonome (Task 3), même esprit que les stories précédentes.
 
 ### References
 
-- [Source: `fighterjet_detection_dataset_tools.py:102-104`] — "STRETCHED RESIZING (au lieu de Letterbox)", précédent pour l'étirement non-uniforme plutôt qu'un letterbox
+- [Source: `dataset_builder/fighterjet_detection_dataset_tools.py:102-104`] — "STRETCHED RESIZING (au lieu de Letterbox)", précédent pour l'étirement non-uniforme plutôt qu'un letterbox
 - [Source: `_bmad-output/implementation-artifacts/8-3-extraction-de-pics-top-k.md`] — `valid_mask`, `detection_score_threshold`, propriétaire de cette logique
 - [Source: `_bmad-output/planning-artifacts/architecture/architecture-jax_supervised_training-2026-07-15/ARCHITECTURE-SPINE.md#AD-12`, `#AD-13`] — résolution canonique 1920×1080, `RESCALE` symétrique du `RESIZE`
 
@@ -62,7 +62,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_rescale_boxes.py` — sortie complète : round-trip src→dst→src (formule RESIZE avant simulée indépendamment) vérifié sur 7 points x + 7 points y dont les extrêmes (0, 1919/1079), garde-fou confirmant qu'un calcul naïf `x*scale` s'écarterait de ~3,79px (détecté), coins du cadre détecteur (x=0/x=223) vérifiés contre des valeurs attendues calculées indépendamment. `git diff 30c1b47e... -- inference_utils.py dataset_configs.py` confirmé : uniquement `_rescale_boxes` ajoutée dans `inference_utils.py`, aucune modification de `dataset_configs.py`.
+`python3 tests/test_rescale_boxes.py` — sortie complète : round-trip src→dst→src (formule RESIZE avant simulée indépendamment) vérifié sur 7 points x + 7 points y dont les extrêmes (0, 1919/1079), garde-fou confirmant qu'un calcul naïf `x*scale` s'écarterait de ~3,79px (détecté), coins du cadre détecteur (x=0/x=223) vérifiés contre des valeurs attendues calculées indépendamment. `git diff 30c1b47e... -- inference_utils.py dataset_configs.py` confirmé : uniquement `_rescale_boxes` ajoutée dans `inference_utils.py`, aucune modification de `dataset_configs.py`.
 
 ### Completion Notes List
 
@@ -73,7 +73,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 ### File List
 
 - `inference_utils.py` (modifié — ajout de `_rescale_boxes`, aucune fonction existante touchée)
-- `test_rescale_boxes.py` (nouveau, racine) — script de vérification autonome (Task 3)
+- `tests/test_rescale_boxes.py` (nouveau, racine) — script de vérification autonome (Task 3)
 
 ## Senior Developer Review (AI)
 

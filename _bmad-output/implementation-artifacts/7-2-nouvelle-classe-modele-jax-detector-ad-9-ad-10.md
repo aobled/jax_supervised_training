@@ -56,7 +56,7 @@ Utiliser les constantes importées, pas les littéraux `"heatmap"`/`"size"` ré�
 
 ### Testing Standards
 
-Pas de suite de tests automatisée formelle dans ce projet. Script/test autonome de forward pass (Task 3), dans l'esprit de `test_detection_target_encoding.py` (Story 7.1).
+Pas de suite de tests automatisée formelle dans ce projet. Script/test autonome de forward pass (Task 3), dans l'esprit de `tests/test_detection_target_encoding.py` (Story 7.1).
 
 ### References
 
@@ -75,7 +75,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_aircraft_detector_centernet.py` — 5/5 tests passés (formes de sortie eval, plage `[0,1]` du heatmap, mode train avec `mutable=['batch_stats']`+dropout, batch de taille 1, enregistrement dans `MODELS`).
+`python3 tests/test_aircraft_detector_centernet.py` — 5/5 tests passés (formes de sortie eval, plage `[0,1]` du heatmap, mode train avec `mutable=['batch_stats']`+dropout, batch de taille 1, enregistrement dans `MODELS`).
 
 ### Completion Notes List
 
@@ -83,13 +83,13 @@ Claude Sonnet 5 (claude-sonnet-5)
 - Deux têtes parallèles depuis la dernière couche du decoder : `nn.Conv(1,(1,1))+sigmoid` pour `HEATMAP_KEY` (`[0,1]`), `nn.Conv(2,(1,1))` linéaire (pas d'activation) pour `SIZE_KEY`.
 - `HEATMAP_KEY`/`SIZE_KEY` importés depuis `detection_target_encoding.py` (Story 7.1) — aucun littéral `"heatmap"`/`"size"` réécrit dans `model_library.py`.
 - Factory `create_aircraft_detector_centernet(dropout_rate=0.2, **kwargs)` + entrée `'aircraft_detector_centernet'` dans `MODELS`, suivant exactement le pattern `create_aircraft_detector_unet`.
-- Test standalone `test_aircraft_detector_centernet.py` créé (pattern `test_detection_target_encoding.py`) : shapes de sortie `(2,224,224,1)`/`(2,224,224,2)` en mode eval et train (`mutable=['batch_stats']`, `rngs={'dropout':...}`), heatmap borné `[0,1]`, batch_size=1, enregistrement `MODELS`. Tous passent.
+- Test standalone `tests/test_aircraft_detector_centernet.py` créé (pattern `tests/test_detection_target_encoding.py`) : shapes de sortie `(2,224,224,1)`/`(2,224,224,2)` en mode eval et train (`mutable=['batch_stats']`, `rngs={'dropout':...}`), heatmap borné `[0,1]`, batch_size=1, enregistrement `MODELS`. Tous passent.
 - Portée respectée : pas de backbone/FPN (AD-10), pas de tête d'offset sub-pixel, aucune modification des autres classes/du reste de `MODELS`.
 
 ### File List
 
 - `model_library.py` (modifié — ajout `AircraftDetectorCenterNet`, `create_aircraft_detector_centernet`, import `HEATMAP_KEY`/`SIZE_KEY`, entrée `MODELS`)
-- `test_aircraft_detector_centernet.py` (nouveau)
+- `tests/test_aircraft_detector_centernet.py` (nouveau)
 
 ## Senior Developer Review (AI)
 
@@ -99,7 +99,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Vérifications effectuées
 
-- `python3 test_aircraft_detector_centernet.py` ré-exécuté indépendamment : 5/5 passés.
+- `python3 tests/test_aircraft_detector_centernet.py` ré-exécuté indépendamment : 5/5 passés.
 - Diff ligne à ligne `AircraftDetectorCenterNet` vs `AircraftDetectorUNet` (AC1).
 - Diff git contre `baseline_commit` (`30c1b47`) confirmé **purement additif** (3 hunks : import, classe+factory, entrée `MODELS`) — aucun code existant modifié.
 - Robustesse de la résolution de sortie testée empiriquement sur entrées non carrées/impaires : (224,224), (225,127), (96,160), (97,63) → sortie = entrée dans tous les cas (AC2).
@@ -119,14 +119,14 @@ Aucun finding HIGH ou MEDIUM. Têtes de sortie correctement câblées (sigmoid h
 
 ## Addendum post-hoc (2026-07-17, pendant l'exécution réelle de la Story 7.8)
 
-**Bug de collapse trouvé en entraînement réel, corrigé.** Après 4 epochs sur TPU (Colab), `HeatmapRecall` restait figé à `0.0000` alors que la loss continuait de baisser lentement. Diagnostic (`diagnose_heatmap_predictions.py`, nouveau script à la racine) sur le checkpoint réel : les prédictions du heatmap aux vrais pixels-centres et sur un échantillon de fond étaient **quasi identiques** (ratio moyenne(positifs)/moyenne(fond) ≈ 1,00x) — le modèle prédisait une valeur quasi constante (~0,103) partout, sans discrimination spatiale.
+**Bug de collapse trouvé en entraînement réel, corrigé.** Après 4 epochs sur TPU (Colab), `HeatmapRecall` restait figé à `0.0000` alors que la loss continuait de baisser lentement. Diagnostic (`archive/diagnose_heatmap_predictions.py`, nouveau script à la racine) sur le checkpoint réel : les prédictions du heatmap aux vrais pixels-centres et sur un échantillon de fond étaient **quasi identiques** (ratio moyenne(positifs)/moyenne(fond) ≈ 1,00x) — le modèle prédisait une valeur quasi constante (~0,103) partout, sans discrimination spatiale.
 
 **Cause identifiée** : `AircraftDetectorCenterNet` utilisait l'initialisation Flax par défaut pour le biais de la tête heatmap (biais=0 → `sigmoid(0)=0,5` partout au démarrage). Piège documenté par le papier ayant introduit la focal loss (Lin et al., *RetinaNet*, 2018, §3.3 "Model Initialization") : avec une tâche où les positifs sont ultra-minoritaires, démarrer à 0,5 fait que le volume massif de gradient de fond noie le signal des rares pixels positifs avant que le réseau ait pu apprendre à les différencier.
 
 **Correctif appliqué** : nouveau champ `heatmap_prior: float = 0.01` sur `AircraftDetectorCenterNet` (défaut = valeur générique du papier RetinaNet). Le biais de la dernière couche (`nn.Conv` de la tête heatmap) est désormais initialisé via `bias_init=nn.initializers.constant(log(heatmap_prior/(1-heatmap_prior)))`, pour que `sigmoid(biais) = heatmap_prior` au démarrage au lieu de 0,5. `create_aircraft_detector_centernet` et `dataset_configs.py::JAX_DETECTOR` mis à jour pour porter la valeur **mesurée réellement** sur le dataset (pas le générique 0,01) : `heatmap_prior = 0.0000268` (283 753 pixels positifs / 10 600 482 816 pixels totaux, ~1,34 objet/image en moyenne sur 211 266 images) — beaucoup plus faible que le 0,01 du papier, cohérent avec un seul pixel-pic par objet sur une grille 224×224 (contre des milliers d'ancres dans le contexte d'origine du papier). `main.py` passe `heatmap_prior` conditionnellement à `get_model()` (seule `create_aircraft_detector_centernet` l'accepte, les autres factories n'ont pas de `**kwargs` de secours).
 
-Vérifié numériquement avant/après (poids fraîchement initialisés, aucun entraînement) : sortie heatmap moyenne ≈ 2,74e-5 avec le correctif (cible 2,68e-5) contre ≈ 0,505 sans (ancien comportement). Deux tests ajoutés à `test_aircraft_detector_centernet.py` (`test_heatmap_bias_init_matches_prior`, `test_heatmap_prior_default_is_backward_compatible`). Implique de relancer l'entraînement depuis zéro (correctif d'initialisation, non repartable du checkpoint déjà collapsé).
+Vérifié numériquement avant/après (poids fraîchement initialisés, aucun entraînement) : sortie heatmap moyenne ≈ 2,74e-5 avec le correctif (cible 2,68e-5) contre ≈ 0,505 sans (ancien comportement). Deux tests ajoutés à `tests/test_aircraft_detector_centernet.py` (`test_heatmap_bias_init_matches_prior`, `test_heatmap_prior_default_is_backward_compatible`). Implique de relancer l'entraînement depuis zéro (correctif d'initialisation, non repartable du checkpoint déjà collapsé).
 
-**Fichiers modifiés** : `model_library.py` (champ `heatmap_prior`, `bias_init` sur la tête heatmap, factory), `dataset_configs.py` (`JAX_DETECTOR["heatmap_prior"]`), `main.py` (passage conditionnel à `get_model`), `test_aircraft_detector_centernet.py` (2 tests), `diagnose_heatmap_predictions.py` (nouveau script de diagnostic, racine).
+**Fichiers modifiés** : `model_library.py` (champ `heatmap_prior`, `bias_init` sur la tête heatmap, factory), `dataset_configs.py` (`JAX_DETECTOR["heatmap_prior"]`), `main.py` (passage conditionnel à `get_model`), `tests/test_aircraft_detector_centernet.py` (2 tests), `archive/diagnose_heatmap_predictions.py` (nouveau script de diagnostic, racine).
 
 **Revue indépendante (Opus, contexte neuf) : APPROVE.** Vérifié par introspection directe des paramètres (pas seulement les tests) : tête heatmap (`Conv_17`) a bien `bias=-10.5271` (correspond exactement à `log(2.68e-5/(1-2.68e-5))`), tête taille (`Conv_18`) reste à `bias=0.0` (non affectée) — confirme que le biais est câblé sur la bonne tête, pas inversé. Mutation testée : un signe inversé donnerait `sigmoid≈0.99997` (prédit ~1 partout), pas notre cas. Garde `main.py` confirmée réelle (les factories `sophisticated_cnn_*` n'ont vraiment pas de `**kwargs` de secours — un `TypeError` surviendrait sans la garde). Statistique π confirmée cohérente avec le critère exact utilisé par la loss et la métrique (`gt_heatmap==1.0`, pas la retombée gaussienne). `git diff` confirme zéro impact sur `AircraftDetectorUNet`/autres classes. Un seul point LOW à surveiller si le collapse revient après relance : π=2,68e-5 est en dessous du plus petit float16 normal (~6,1e-5) — pas un défaut du correctif lui-même, mais un prochain suspect si le problème persiste malgré ce fix.

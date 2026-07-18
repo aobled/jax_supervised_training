@@ -520,7 +520,7 @@ class AircraftDetectorCenterNet(nn.Module):
         # fond (pixels negatifs >> positifs) noie le signal des rares pixels-centres avant
         # que le reseau ait pu apprendre a les differencier - collapse observe
         # empiriquement en execution reelle (Story 7.8 : predictions quasi identiques aux
-        # centres et au fond apres 1 epoch, diagnose_heatmap_predictions.py). Corrige en
+        # centres et au fond apres 1 epoch, archive/diagnose_heatmap_predictions.py). Corrige en
         # demarrant sigmoid(biais) = heatmap_prior (la vraie proportion de positifs),
         # au lieu de 0.5 non-informatif.
         heatmap_bias_init = math.log(self.heatmap_prior / (1.0 - self.heatmap_prior))

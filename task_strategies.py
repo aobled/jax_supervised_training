@@ -315,7 +315,7 @@ class CenterNetDetectionStrategy(TaskStrategy):
         (fraction de pixels-centres reels ou pred>0.5) par la moyenne CONTINUE de la
         prediction aux vrais pixels-centres. Le seuil dur masquait un vrai progres en
         execution reelle (Story 7.8) - le modele apprenait deja une separation nette
-        centres/fond (confirme par diagnose_heatmap_predictions.py) alors que
+        centres/fond (confirme par archive/diagnose_heatmap_predictions.py) alors que
         HeatmapRecall restait a 0.0000 plusieurs epochs de suite, tant qu'aucune
         prediction n'avait franchi 0.5. Cette metrique gate aussi la sauvegarde du
         checkpoint (trainer.py, optimization_mode="max") - un seuil dur y etait

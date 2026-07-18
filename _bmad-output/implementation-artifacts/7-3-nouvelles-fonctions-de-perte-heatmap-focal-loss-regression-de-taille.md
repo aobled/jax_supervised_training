@@ -78,7 +78,7 @@ loss = (1/N) * sum(loss_pixel)   # PAS -1/N : chaque loss_pixel porte deja son p
 
 ### Testing Standards
 
-Script autonome (Task 4), même esprit que `test_detection_target_encoding.py` (Story 7.1) — pas de framework de test formel dans ce projet.
+Script autonome (Task 4), même esprit que `tests/test_detection_target_encoding.py` (Story 7.1) — pas de framework de test formel dans ce projet.
 
 ### References
 
@@ -97,7 +97,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 test_centernet_loss.py` — 6/6 tests passés (loss positive+décroissante heatmap, loss positive+décroissante taille, masquage du fond taille, absence de NaN/inf batch vide heatmap+taille, `compute_centernet_loss` décroît via contrat dict, absence de NaN/inf batch totalement vide combiné).
+`python3 tests/test_centernet_loss.py` — 6/6 tests passés (loss positive+décroissante heatmap, loss positive+décroissante taille, masquage du fond taille, absence de NaN/inf batch vide heatmap+taille, `compute_centernet_loss` décroît via contrat dict, absence de NaN/inf batch totalement vide combiné).
 
 ### Completion Notes List
 
@@ -106,12 +106,12 @@ Claude Sonnet 5 (claude-sonnet-5)
 - `compute_size_regression_loss` : masque dérivé de `gt_size > 0` sur largeur ET hauteur (`jnp.all(..., axis=-1)`), L1 uniquement aux positions masquées, normalisé par le nombre de centres réels, garde epsilon au dénominateur (même pattern que `compute_segmentation_loss`).
 - `compute_centernet_loss` combine les deux avec `heatmap_weight=1.0`/`size_weight=0.1` (valeurs par défaut du papier, non tunées) — ne modifie ni n'appelle `DetectionStrategy.compute_loss` (`task_strategies.py`, hors scope, Story 7.6).
 - Aucune fonction existante (`compute_segmentation_loss`, `compute_focal_loss`, `compute_grid_loss(_multilevel)`, `compute_v7_loss`) modifiée ni réutilisée — vérifié par diff, ajout pur en fin de fichier.
-- Test standalone `test_centernet_loss.py` créé (pattern `test_detection_target_encoding.py`) : sanity gradient-friendly (loss décroît), garde NaN/inf sur batch sans objet, pour les 3 fonctions.
+- Test standalone `tests/test_centernet_loss.py` créé (pattern `tests/test_detection_target_encoding.py`) : sanity gradient-friendly (loss décroît), garde NaN/inf sur batch sans objet, pour les 3 fonctions.
 
 ### File List
 
 - `loss_functions.py` (modifié — ajout `compute_heatmap_focal_loss`, `compute_size_regression_loss`, `compute_centernet_loss`, import `HEATMAP_KEY`/`SIZE_KEY`)
-- `test_centernet_loss.py` (nouveau)
+- `tests/test_centernet_loss.py` (nouveau)
 
 ## Senior Developer Review (AI)
 
@@ -121,7 +121,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Vérifications effectuées
 
-- `python3 test_centernet_loss.py` ré-exécuté indépendamment : 6/6 passés.
+- `python3 tests/test_centernet_loss.py` ré-exécuté indépendamment : 6/6 passés.
 - Formules re-dérivées from-scratch en NumPy pur, comparées aux fonctions du repo : écarts de l'ordre de `1e-6` (arrondi float32), formules conformes au pseudocode Dev Notes.
 - `git diff 30c1b47 -- loss_functions.py` : changement purement additif. `git diff 30c1b47 -- task_strategies.py` : vide (`DetectionStrategy.compute_loss` non touché, AC3 confirmé).
 - **Piège de double-négation explicitement recherché et absent** : vérifié numériquement (`loss_far` positif ≈ +2.13, pas -2.13).

@@ -237,7 +237,7 @@ def decode_detection_targets(
     pic culmine exactement a 1.0 (sommet du noyau gaussien) - deux pics voisins sont donc
     toujours a egalite exacte, et la comparaison stricte ci-dessous (score < voisinage.max())
     ne supprime jamais un pic a egalite, quelle que soit la taille de fenetre (verifie
-    empiriquement, voir test_detection_target_encoding.py). Le parametre reste expose et
+    empiriquement, voir tests/test_detection_target_encoding.py). Le parametre reste expose et
     documente par coherence avec le futur decodage JAX de l'Epic 8 (Story 8.3), qui lira
     de vraies predictions de modele (jamais exactement a egalite) et ou la taille de
     fenetre redeviendra determinante.

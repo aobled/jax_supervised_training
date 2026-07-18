@@ -64,10 +64,10 @@ Pour lancer un entraînement depuis un dataset vierge :
 1. **Générer les Chunks :**
    ```bash
    # Si tu entraînes ton classifieur
-   python fighterjet_classification_dataset_tools.py
+   python dataset_builder/fighterjet_classification_dataset_tools.py
    
    # Si tu entraînes ton détecteur
-   python fighterjet_detection_dataset_tools.py
+   python dataset_builder/fighterjet_detection_dataset_tools.py
    ```
 
 2. **Lancer l'entraînement :**
