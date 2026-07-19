@@ -53,11 +53,11 @@ OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
 
-VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-#VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
-#TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
-#VIDEO_PATH = "/home/aobled/Downloads/eaa1.mp4"
+#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
+TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
+#VIDEO_PATH = "/home/aobled/Downloads/eaa2.mp4"
 #TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
 
 # 3. Chargement de la config dataset
@@ -228,6 +228,15 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     class_scores = np.asarray(results["class_scores"][frame_idx])
     detection_scores = np.asarray(results["detection_scores"][frame_idx])
     valid_indices = np.where(valid_mask)[0]  # valid_mask seule autorité (AD-15/AC3 8.6) - boites uniquement
+    # Retri par position (y1 puis x1, "ordre de lecture" - meme convention que l'ancien
+    # pipeline, sorted(key=lambda b: (y1, x1))) : valid_indices herite sinon de l'ordre de
+    # _top_k_boxes (jax.lax.top_k, Story 8.3), qui trie par SCORE decroissant - un score qui
+    # oscille legerement d'une frame a l'autre suffit a permuter 2 detections dans ce
+    # classement, faisant "vibrer" la grille de crops bas-droite (chaque indice = une case
+    # fixe) sans que les detections elles-memes n'aient bouge. Tri sur <=20 elements,
+    # cout negligeable (retour utilisateur 2026-07-19).
+    if valid_indices.size > 0:
+        valid_indices = valid_indices[np.lexsort((boxes[valid_indices, 0], boxes[valid_indices, 1]))]
     all_indices = np.arange(detection_scores.shape[0])  # 20 slots bruts - heatmap partagee, voir docstring
 
     # 1. Top-Left: Original
