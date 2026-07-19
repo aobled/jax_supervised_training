@@ -3,6 +3,7 @@ import os
 import threading
 import queue
 import concurrent.futures
+import time
 
 # Réduit les crashs cuDNN autotune (GTX 1660 Ti) — doit être défini avant import jax
 os.environ.setdefault(
@@ -39,6 +40,11 @@ DETECTOR_CHECKPOINT_PATH = "best_model_jax_detector.pkl"
 
 CANVAS_WIDTH = 1920
 CANVAS_HEIGHT = 1080
+# Sigma du flou gaussien GLOBAL applique une seule fois a la heatmap synthetique (voir
+# _render_synthetic_heatmap) - remplace le falloff calcule par-ellipse (cout ~ nombre de
+# candidats x taille de boite, mesure jusqu'a 64% du temps total sur une scene dense,
+# 2026-07-19) par un flou a cout fixe (~ taille du canevas), independant du contenu.
+HEATMAP_BLUR_SIGMA = 14
 
 # ==========================================================
 # Detection CONFIGURATION
@@ -49,8 +55,10 @@ BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU,
 
 #VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
 #TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
-TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
+#VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
+#TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
+VIDEO_PATH = "/home/aobled/Downloads/eaa1.mp4"
+TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
 
 # 3. Chargement de la config dataset
 try:
@@ -86,35 +94,36 @@ def warmup_jit_predictors(batched_predict_fn, batch_size):
 
 
 def _draw_score_weighted_ellipse(heatmap_2d, center, semi_axes, score):
-    """Remplit une ellipse à falloff gaussien pondéré par `score`, centrée sur
-    `center`=(cx,cy), de demi-axes `semi_axes`=(a,b).
+    """Remplit une ellipse PLEINE (teinte uniforme = `score`), centrée sur `center`=(cx,cy),
+    de demi-axes `semi_axes`=(a,b).
 
     Dimensionnée pour ÉPOUSER l'étendue de la boîte (pas la formule CornerNet
     `_gaussian_radius` de `detection_target_encoding.py`/Story 7.1, essayée d'abord et
     écartée après contrôle visuel : elle produit un pic étroit adapté à l'entraînement
     d'un heatmap CenterNet, pas au rendu "masque plein" attendu ici, cf.
-    `archive/old video detection render.png`). Intensité maximale (`score`) au centre,
-    décroissance gaussienne (`exp(-4*r²)`, r=distance elliptique normalisée) vers le
-    bord - remplace le remplissage plat initial (Story 8.7/8.9), qui rendait chaque
-    détection comme un disque à teinte uniforme plutôt qu'une vraie "chaleur" (retour
-    utilisateur 2026-07-19). Écrit dans un patch local (ROI autour du centre, tronqué
-    aux bords de l'image) puis blend max avec l'existant - jamais de plein-cadre alloué
-    par détection. Utilisée uniquement pour la visualisation, jamais sur le chemin
+    `archive/old video detection render.png`). Remplissage plat via `cv2.ellipse` (natif,
+    rapide) - PAS de falloff gaussien calculé ici (retire le `exp(-4*r²)` par-pixel du
+    2026-07-19 matin : son coût scalait avec le nombre de candidats x taille de boîte,
+    mesuré jusqu'à 64% du temps total sur une scène dense/3 vidéos comparées - régression
+    "temps non-constant" contraire à la propriété attendue du Single-Pass, retour
+    utilisateur 2026-07-19 soir). Le falloff visuel est maintenant obtenu par UN SEUL flou
+    gaussien global appliqué par `_render_synthetic_heatmap` après tous les remplissages -
+    coût fixe, indépendant du contenu. Écrit dans un patch local (ROI autour du centre,
+    tronqué aux bords de l'image) puis blend max avec l'existant - jamais de plein-cadre
+    alloué par détection. Utilisée uniquement pour la visualisation, jamais sur le chemin
     d'inférence critique.
     """
     h, w = heatmap_2d.shape[:2]
-    cx, cy = float(center[0]), float(center[1])
-    a, b = max(float(semi_axes[0]), 1.0), max(float(semi_axes[1]), 1.0)
+    cx, cy = int(round(center[0])), int(round(center[1]))
+    a, b = max(int(round(semi_axes[0])), 1), max(int(round(semi_axes[1])), 1)
 
-    x0, x1 = max(int(cx - a), 0), min(int(cx + a) + 1, w)
-    y0, y1 = max(int(cy - b), 0), min(int(cy + b) + 1, h)
+    x0, x1 = max(cx - a, 0), min(cx + a + 1, w)
+    y0, y1 = max(cy - b, 0), min(cy + b + 1, h)
     if x1 <= x0 or y1 <= y0:
         return  # boite hors image, rien a dessiner
 
-    ys, xs = np.mgrid[y0:y1, x0:x1]
-    r2 = ((xs - cx) / a) ** 2 + ((ys - cy) / b) ** 2  # 0 au centre, 1 sur le bord de l'ellipse
-    patch = (np.exp(-4.0 * r2) * float(score)).astype(np.float32)
-
+    patch = np.zeros((y1 - y0, x1 - x0), dtype=np.float32)
+    cv2.ellipse(patch, (cx - x0, cy - y0), (a, b), 0, 0, 360, float(score), thickness=-1)
     region = heatmap_2d[y0:y1, x0:x1]
     np.maximum(region, patch, out=region)
 
@@ -131,7 +140,10 @@ def _render_synthetic_heatmap(boxes, detection_scores, indices, canvas_size):
     `detection_score_threshold` (confirmé lors du diagnostic threshold_sensitivity,
     2026-07-18) ; appeler cette fonction avec tous les indices (0..19) plutôt que
     `valid_mask` seul restaure la valeur exploratoire de l'ancien rendu heatmap dense
-    UNet (voir "hésitations" sous le seuil, retour utilisateur 2026-07-19)."""
+    UNet (voir "hésitations" sous le seuil, retour utilisateur 2026-07-19).
+
+    Falloff "chaleur" obtenu par UN SEUL `cv2.GaussianBlur` global en fin de fonction
+    (2026-07-19 soir), pas par ellipse - voir `_draw_score_weighted_ellipse`."""
     h, w = canvas_size
     heatmap = np.zeros((h, w), dtype=np.float32)
     for idx in indices:
@@ -145,6 +157,7 @@ def _render_synthetic_heatmap(boxes, detection_scores, indices, canvas_size):
         cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         semi_axes = (box_w / 2.0, box_h / 2.0)
         _draw_score_weighted_ellipse(heatmap, (cx, cy), semi_axes, score)
+    heatmap = cv2.GaussianBlur(heatmap, (0, 0), sigmaX=HEATMAP_BLUR_SIGMA)
     return heatmap
 
 
@@ -307,7 +320,15 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
 
 def process_frames_batch(frames_buffer, batched_predict_fn, config):
     """Single-pass JAX (Story 8.6) : détection+classification unifiées, batchées via
-    vmap - remplace decode_segmentation_and_detect_batch + classify_batch_detections."""
+    vmap - remplace decode_segmentation_and_detect_batch + classify_batch_detections.
+
+    Instrumentation temps GPU/CPU (2026-07-19, retour utilisateur : débit "Inférence GPU"
+    mesuré bien plus bas qu'attendu, option A retenue pour objectiver avant d'optimiser
+    à l'aveugle) : les appels JAX sont dispatchés en ASYNCHRONE - sans
+    `jax.block_until_ready` explicite ici, le temps GPU réel serait mesuré à tort dans la
+    phase de rendu CPU (le premier `np.asarray` sur `results`, dans `build_quadrant_canvas`,
+    est le point qui bloque réellement). Retourne (canvases, timing) - timing accumulé et
+    résumé par le boucle principale."""
     # Frame source -> repere canonique BGR 1920x1080 - UNE SEULE FOIS, reutilisee a la
     # fois pour l'entree du modele (converted en gris ensuite) ET pour l'affichage/crop
     # (build_quadrant_canvas) - correction post-revue independante (Story 8.7) : passer
@@ -322,6 +343,7 @@ def process_frames_batch(frames_buffer, batched_predict_fn, config):
             return cv2.resize(frame, (CANVAS_WIDTH, CANVAS_HEIGHT))
         return frame
 
+    t_start = time.perf_counter()
     canonical_frames = [_to_canonical_bgr(frame) for frame in frames_buffer]
     # Pixels bruts [0,255] (AD-12/Story 8.2, jamais de /255.0 ici - normalisation interne
     # à build_single_pass_predict_fn).
@@ -329,15 +351,26 @@ def process_frames_batch(frames_buffer, batched_predict_fn, config):
         cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)[..., None]
         for frame in canonical_frames
     ], axis=0)
+    t_preprocess = time.perf_counter()
+
     results = batched_predict_fn(jnp.asarray(gray_frames))
+    jax.block_until_ready(results)  # force la sync GPU ici, pas plus tard dans le rendu
+    t_gpu = time.perf_counter()
 
     def process_single_canvas(i):
         return build_quadrant_canvas(canonical_frames[i], results, i, config)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         canvases = list(executor.map(process_single_canvas, range(len(frames_buffer))))
+    t_cpu = time.perf_counter()
 
-    return canvases
+    timing = {
+        "n_frames": len(frames_buffer),
+        "preprocess": t_preprocess - t_start,
+        "gpu": t_gpu - t_preprocess,
+        "cpu_render": t_cpu - t_gpu,
+    }
+    return canvases, timing
 
 def reader_thread_func(cap, input_queue, frame_stride):
     frame_id = 0
@@ -416,8 +449,12 @@ if __name__ == "__main__":
 
     saved_count = 0
     frames_buffer = []
-    
+
     total_to_process = (total_frames + FRAME_STRIDE - 1) // FRAME_STRIDE
+
+    # Accumulateurs timing GPU vs CPU (2026-07-19, option A retour utilisateur - voir
+    # docstring process_frames_batch) - somme brute en secondes, restitue en resume a la fin.
+    timing_totals = {"preprocess": 0.0, "gpu": 0.0, "cpu_render": 0.0}
 
     with tqdm(total=total_to_process, desc="Inférence GPU") as pbar:
         while True:
@@ -428,10 +465,12 @@ if __name__ == "__main__":
             frames_buffer.append(frame)
 
             if len(frames_buffer) == BATCH_SIZE:
-                canvases = process_frames_batch(frames_buffer, batched_predict_fn, config)
+                canvases, timing = process_frames_batch(frames_buffer, batched_predict_fn, config)
                 for canvas in canvases:
                     output_queue.put(canvas)
 
+                for key in ("preprocess", "gpu", "cpu_render"):
+                    timing_totals[key] += timing[key]
                 saved_count += len(frames_buffer)
                 pbar.update(len(frames_buffer))
                 frames_buffer.clear()
@@ -440,10 +479,12 @@ if __name__ == "__main__":
             # Dernier lot partiel (taille != BATCH_SIZE) : jax.vmap gère toute taille de
             # lot, un nouveau shape déclenche simplement une recompilation JIT ponctuelle
             # (attendu, pas une erreur - lot final généralement petit).
-            canvases = process_frames_batch(frames_buffer, batched_predict_fn, config)
+            canvases, timing = process_frames_batch(frames_buffer, batched_predict_fn, config)
             for canvas in canvases:
                 output_queue.put(canvas)
-                
+
+            for key in ("preprocess", "gpu", "cpu_render"):
+                timing_totals[key] += timing[key]
             saved_count += len(frames_buffer)
             pbar.update(len(frames_buffer))
             frames_buffer.clear()
@@ -464,3 +505,16 @@ if __name__ == "__main__":
         print(f"🎥 Vidéo : {OUTPUT_VIDEO_PATH}")
     else:
         print("❌ La vidéo n'a pas été créée.")
+
+    # Repartition temps GPU vs CPU (option A, 2026-07-19) - permet de savoir ou porter
+    # l'effort d'optimisation avant d'agir a l'aveugle.
+    total_time = sum(timing_totals.values())
+    if total_time > 0 and saved_count > 0:
+        print("\n⏱️  Répartition du temps (hors I/O lecteur/écrivain, threads séparés) :")
+        for key, label in (("preprocess", "Pré-traitement CPU"), ("gpu", "Inférence GPU (sync)"), ("cpu_render", "Rendu canevas CPU")):
+            t = timing_totals[key]
+            print(f"   {label:22s} : {t:7.2f}s ({100*t/total_time:5.1f}%)")
+        print(f"   {'Total mesuré':22s} : {total_time:7.2f}s")
+        print(f"   Débit GPU pur          : {saved_count / timing_totals['gpu']:.2f} it/s")
+        print(f"   Débit CPU pur (rendu)  : {saved_count / timing_totals['cpu_render']:.2f} it/s")
+        print(f"   Débit combiné mesuré   : {saved_count / total_time:.2f} it/s")
