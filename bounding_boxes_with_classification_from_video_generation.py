@@ -53,10 +53,10 @@ OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
 
-#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
-VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
-TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
+VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+#VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
+#TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
 #VIDEO_PATH = "/home/aobled/Downloads/eaa2.mp4"
 #TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
 

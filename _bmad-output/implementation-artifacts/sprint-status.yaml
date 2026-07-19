@@ -52,7 +52,7 @@
 #     existing consumers (non-regression, explicit user requirement).
 
 generated: 2026-07-12
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 project: jax_supervised_training
 project_key: NOKEY
 tracking_system: file-system
@@ -114,7 +114,7 @@ development_status:
   7-6-nouvelle-strategie-dediee-task-strategies-py-ad-9-ad-17: done
   7-7-entree-jax-detector-dataset-configs-py-dispatch-task-type-main-py-ad-17: done
   7-8-entrainement-complet-validation-preuve-dexecution-fr1-cap-1: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   epic-8: done
   8-1-validation-de-parite-pixel-resize-crop: done
@@ -126,7 +126,7 @@ development_status:
   8-7-migration-bounding-boxes-with-classification-from-video-generation-py: done
   8-8-migration-tools-bounding-boxes-with-classification-from-images-generation-py: done
   8-9-validation-finale-fusion-de-boites-resolue-non-regression: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
 action_items:
   - epic: "1-3"
@@ -176,7 +176,7 @@ action_items:
   - epic: "6"
     action: "Envisager une revue de code legere meme sur les epics mecaniques multi-fichiers, pour rattraper les oublis ponctuels avant la verification finale (cf. titre docs/index.md manque en 6.3)"
     owner: "futur cycle"
-    status: open
+    status: in-progress
   - epic: "quickdev-2026-07-14"
     action: "Etendre la regle 'verifier contre un log source' aux commentaires de code, pas seulement a la memoire de conversation - appliquer avant citation, pas apres correction utilisateur (recidive : 88% val cite depuis un commentaire perime, corrige par l'utilisateur)"
     owner: "process (Claude)"
@@ -188,4 +188,20 @@ action_items:
   - epic: "quickdev-2026-07-14"
     action: "model_name/task_type sweep (trainer.py, task_strategies.py) - item reconduit 2 fois (Epic 4-5, ce cycle), toujours pas fait"
     owner: "futur cycle"
+    status: open
+  - epic: "7-8"
+    action: "Pour toute formule mathematique retapee de memoire (loss, encodage geometrique, offsets), prevoir une verification explicite contre la source/papier de reference avant la revue, pas seulement pendant - 3 occurrences du meme profil d'erreur sur Epic 7+8"
+    owner: "futur cycle"
+    status: open
+  - epic: "7-8"
+    action: "Quand une story flague explicitement une mesure 'non concluante, a refaire' (ex. AD-6 en 8.7), la story de cloture d'epic doit verifier explicitement que cette mesure a ete refaite avant de clore - sinon la documenter comme dette non resolue, pas silencieusement omise"
+    owner: "futur cycle"
+    status: open
+  - epic: "7-8"
+    action: "Avant de valider une optimisation de performance sur un seul cas de test, tester au moins un cas dense/pire-cas avant de la considerer acquise - le falloff gaussien par-ellipse et l'overlay confirmees seules ont tous deux semble corrects sur un cas simple avant de reveler leur defaut sur un cas dense"
+    owner: "Aymeric + Claude"
+    status: open
+  - epic: "7-8"
+    action: "Router au moins un prochain chantier via les agents specialises (Amelia/Winston) a titre de test reel - item reconduit pour la 3e fois consecutive (Epic 6, ce cycle)"
+    owner: "Aymeric"
     status: open
