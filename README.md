@@ -2,7 +2,7 @@
 
 A JAX/Flax computer vision pipeline that detects military aircraft in video/images and classifies their type (32 aircraft models), built entirely on a JIT-compiled, single-pass inference graph.
 
-![Demo — 4-quadrant live output](docs/demo.png)
+![Demo — 4-quadrant live output](docs/demo.gif)
 
 *Top-left: source frame. Top-right: detections (boxes + class) overlaid on a synthetic confidence heatmap. Bottom-left: standalone heatmap — including "near-miss" candidates the model considered but didn't confirm. Bottom-right: classified crops of each confirmed detection.*
 
