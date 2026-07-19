@@ -53,12 +53,12 @@ OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
 
-#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
 #VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
 #TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
-VIDEO_PATH = "/home/aobled/Downloads/eaa1.mp4"
-TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
+#VIDEO_PATH = "/home/aobled/Downloads/eaa1.mp4"
+#TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
 
 # 3. Chargement de la config dataset
 try:
@@ -193,7 +193,7 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     """Construit le canvas 4 quadrants (Story 8.7, après migration Single-Pass, Story 8.6).
 
     `target_frame` DOIT déjà être au repère canonique 1920x1080 (voir
-    `process_frames_batch::_to_canonical_bgr`) - `results["boxes"]` est toujours exprimé
+    `run_gpu_inference::_to_canonical_bgr`) - `results["boxes"]` est toujours exprimé
     dans ce même repère (`_rescale_boxes(original_size=(1920,1080))`, figé dans
     `build_single_pass_predict_fn`, Story 8.6, indépendant de la résolution native de la
     frame source). Passer ici une frame à une autre résolution désalignerait
@@ -318,17 +318,23 @@ def build_quadrant_canvas(target_frame, results, frame_idx, config):
     return canvas
 
 
-def process_frames_batch(frames_buffer, batched_predict_fn, config):
-    """Single-pass JAX (Story 8.6) : détection+classification unifiées, batchées via
-    vmap - remplace decode_segmentation_and_detect_batch + classify_batch_detections.
+def run_gpu_inference(frames_buffer, batched_predict_fn):
+    """Étape GPU du pipeline (Single-Pass, Story 8.6) : prétraitement + dispatch
+    détection+classification, batchés via vmap - remplace
+    decode_segmentation_and_detect_batch + classify_batch_detections.
 
-    Instrumentation temps GPU/CPU (2026-07-19, retour utilisateur : débit "Inférence GPU"
-    mesuré bien plus bas qu'attendu, option A retenue pour objectiver avant d'optimiser
-    à l'aveugle) : les appels JAX sont dispatchés en ASYNCHRONE - sans
-    `jax.block_until_ready` explicite ici, le temps GPU réel serait mesuré à tort dans la
-    phase de rendu CPU (le premier `np.asarray` sur `results`, dans `build_quadrant_canvas`,
-    est le point qui bloque réellement). Retourne (canvases, timing) - timing accumulé et
-    résumé par le boucle principale."""
+    Pipelining GPU/CPU (2026-07-19, retour utilisateur : mesure "option A" montrant GPU
+    et CPU strictement séquentiels, 0% de recouvrement, alors que le CPU de rendu est
+    souvent plus rapide que le GPU - jusqu'à ~2x de débit laissé sur la table) :
+    contrairement à la version précédente de cette fonction, AUCUN `jax.block_until_ready`
+    ici - les résultats JAX (encore en calcul asynchrone côté GPU) sont poussés tels quels
+    vers le thread de rendu (`render_thread_func`) par l'appelant. Le thread principal peut
+    ainsi dispatcher le lot suivant sans attendre que ce lot-ci ait fini de calculer sur le
+    GPU, pendant que le thread de rendu consomme les lots précédents. Retourne
+    (canonical_frames, results, timing) - timing ne couvre QUE le prétraitement et le
+    dispatch (rapide, asynchrone) : le temps de calcul GPU réel est désormais mesuré côté
+    rendu (premier `np.asarray` sur `results`, dans `build_quadrant_canvas`, point où la
+    synchronisation se produit réellement)."""
     # Frame source -> repere canonique BGR 1920x1080 - UNE SEULE FOIS, reutilisee a la
     # fois pour l'entree du modele (converted en gris ensuite) ET pour l'affichage/crop
     # (build_quadrant_canvas) - correction post-revue independante (Story 8.7) : passer
@@ -354,23 +360,32 @@ def process_frames_batch(frames_buffer, batched_predict_fn, config):
     t_preprocess = time.perf_counter()
 
     results = batched_predict_fn(jnp.asarray(gray_frames))
-    jax.block_until_ready(results)  # force la sync GPU ici, pas plus tard dans le rendu
-    t_gpu = time.perf_counter()
+    t_dispatch = time.perf_counter()
+
+    timing = {
+        "preprocess": t_preprocess - t_start,
+        "gpu_dispatch": t_dispatch - t_preprocess,
+    }
+    return canonical_frames, results, timing
+
+
+def render_batch_canvases(canonical_frames, results, n_frames, config):
+    """Étape rendu CPU du pipeline - construit les `n_frames` canevas du lot. Point de
+    synchronisation GPU réel (voir docstring `run_gpu_inference`) : le premier `np.asarray`
+    sur `results`, dans `build_quadrant_canvas`, bloque jusqu'à ce que le calcul GPU
+    dispatché soit terminé - `render_time` inclut donc potentiellement une attente
+    résiduelle du GPU, pas seulement le rendu CPU pur."""
+    t0 = time.perf_counter()
 
     def process_single_canvas(i):
         return build_quadrant_canvas(canonical_frames[i], results, i, config)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        canvases = list(executor.map(process_single_canvas, range(len(frames_buffer))))
-    t_cpu = time.perf_counter()
+        canvases = list(executor.map(process_single_canvas, range(n_frames)))
 
-    timing = {
-        "n_frames": len(frames_buffer),
-        "preprocess": t_preprocess - t_start,
-        "gpu": t_gpu - t_preprocess,
-        "cpu_render": t_cpu - t_gpu,
-    }
-    return canvases, timing
+    render_time = time.perf_counter() - t0
+    return canvases, render_time
+
 
 def reader_thread_func(cap, input_queue, frame_stride):
     frame_id = 0
@@ -379,11 +394,35 @@ def reader_thread_func(cap, input_queue, frame_stride):
         if not ret:
             input_queue.put(None)  # Signal de fin
             break
-            
+
         if frame_id % frame_stride == 0:
             input_queue.put(frame.copy())
-            
+
         frame_id += 1
+
+
+def render_thread_func(render_queue, output_queue, config, timing_state):
+    """Thread dédié au rendu CPU (2026-07-19, pipelining GPU/CPU - voir
+    `run_gpu_inference`) - consomme les résultats GPU dispatchés par le thread principal,
+    construit les canevas, alimente `output_queue` (déjà consommée par `writer_thread`).
+    Tourne en parallèle du thread principal, qui peut dispatcher le lot GPU suivant pendant
+    que ce thread rend le lot précédent. Relaie le signal de fin (`None`) vers
+    `output_queue` pour terminer `writer_thread` proprement."""
+    while True:
+        item = render_queue.get()
+        if item is None:
+            output_queue.put(None)
+            break
+
+        canonical_frames, results, n_frames = item
+        canvases, render_time = render_batch_canvases(canonical_frames, results, n_frames, config)
+        for canvas in canvases:
+            output_queue.put(canvas)
+
+        timing_state["cpu_render"] += render_time
+        timing_state["saved_count"] += n_frames
+        timing_state["pbar"].update(n_frames)
+
 
 def writer_thread_func(video_writer, output_queue):
     while True:
@@ -439,62 +478,76 @@ if __name__ == "__main__":
 
     # Initialisation des Queues et Threads
     input_queue = queue.Queue(maxsize=BATCH_SIZE * 3)
+    # render_queue borne a 2 lots : laisse le GPU dispatcher en avance sur le rendu
+    # (recouvrement recherche) sans le laisser s'emballer indefiniment - chaque lot en
+    # attente retient des tableaux JAX vivants en memoire GPU, deja limitee sur ce
+    # materiel (2026-07-19, retour utilisateur : OOM a batch=16, marge memoire faible
+    # meme a batch=8).
+    render_queue = queue.Queue(maxsize=2)
     output_queue = queue.Queue(maxsize=BATCH_SIZE * 3)
 
+    total_to_process = (total_frames + FRAME_STRIDE - 1) // FRAME_STRIDE
+    pbar = tqdm(total=total_to_process, desc="Pipeline")
+
+    # timing_state partage avec render_thread (2026-07-19, pipelining GPU/CPU) : chaque cle
+    # n'est mutee que par un seul thread (preprocess/gpu_dispatch par le thread principal,
+    # cpu_render/saved_count par render_thread) - pas de verrou necessaire, aucune ecriture
+    # concurrente sur une meme cle.
+    timing_state = {"preprocess": 0.0, "gpu_dispatch": 0.0, "cpu_render": 0.0, "saved_count": 0, "pbar": pbar}
+
     reader_thread = threading.Thread(target=reader_thread_func, args=(cap, input_queue, FRAME_STRIDE))
+    render_thread = threading.Thread(target=render_thread_func, args=(render_queue, output_queue, config, timing_state))
     writer_thread = threading.Thread(target=writer_thread_func, args=(video_writer, output_queue))
-    
+
     reader_thread.start()
+    render_thread.start()
     writer_thread.start()
 
-    saved_count = 0
     frames_buffer = []
+    t_wall_start = time.perf_counter()
 
-    total_to_process = (total_frames + FRAME_STRIDE - 1) // FRAME_STRIDE
+    while True:
+        frame = input_queue.get()
+        if frame is None:
+            break
 
-    # Accumulateurs timing GPU vs CPU (2026-07-19, option A retour utilisateur - voir
-    # docstring process_frames_batch) - somme brute en secondes, restitue en resume a la fin.
-    timing_totals = {"preprocess": 0.0, "gpu": 0.0, "cpu_render": 0.0}
+        frames_buffer.append(frame)
 
-    with tqdm(total=total_to_process, desc="Inférence GPU") as pbar:
-        while True:
-            frame = input_queue.get()
-            if frame is None:
-                break
-
-            frames_buffer.append(frame)
-
-            if len(frames_buffer) == BATCH_SIZE:
-                canvases, timing = process_frames_batch(frames_buffer, batched_predict_fn, config)
-                for canvas in canvases:
-                    output_queue.put(canvas)
-
-                for key in ("preprocess", "gpu", "cpu_render"):
-                    timing_totals[key] += timing[key]
-                saved_count += len(frames_buffer)
-                pbar.update(len(frames_buffer))
-                frames_buffer.clear()
-
-        if len(frames_buffer) > 0:
-            # Dernier lot partiel (taille != BATCH_SIZE) : jax.vmap gère toute taille de
-            # lot, un nouveau shape déclenche simplement une recompilation JIT ponctuelle
-            # (attendu, pas une erreur - lot final généralement petit).
-            canvases, timing = process_frames_batch(frames_buffer, batched_predict_fn, config)
-            for canvas in canvases:
-                output_queue.put(canvas)
-
-            for key in ("preprocess", "gpu", "cpu_render"):
-                timing_totals[key] += timing[key]
-            saved_count += len(frames_buffer)
-            pbar.update(len(frames_buffer))
+        if len(frames_buffer) == BATCH_SIZE:
+            canonical_frames, results, timing = run_gpu_inference(frames_buffer, batched_predict_fn)
+            timing_state["preprocess"] += timing["preprocess"]
+            timing_state["gpu_dispatch"] += timing["gpu_dispatch"]
+            render_queue.put((canonical_frames, results, len(frames_buffer)))  # bloque si render_queue pleine (backpressure voulue)
             frames_buffer.clear()
 
-    # Signal de fin pour le writer
-    output_queue.put(None)
-    
+    if len(frames_buffer) > 0:
+        # Dernier lot partiel (taille != BATCH_SIZE) : paddé à BATCH_SIZE en répétant la
+        # dernière frame réelle, pour ne JAMAIS présenter une 2e shape à jax.vmap - mesuré
+        # à ~12s de recompilation JIT + recherche cuDNN bloquante en fin de run (retour
+        # utilisateur 2026-07-19, timestamps du log) ; auparavant considéré comme un coût
+        # ponctuel acceptable, en réalité significatif. Les résultats sur les frames de
+        # padding sont ignorés : canonical_frames tronqué à n_real avant le rendu.
+        n_real = len(frames_buffer)
+        padded_buffer = frames_buffer + [frames_buffer[-1]] * (BATCH_SIZE - n_real)
+        canonical_frames, results, timing = run_gpu_inference(padded_buffer, batched_predict_fn)
+        canonical_frames = canonical_frames[:n_real]
+        timing_state["preprocess"] += timing["preprocess"]
+        timing_state["gpu_dispatch"] += timing["gpu_dispatch"]
+        render_queue.put((canonical_frames, results, n_real))
+        frames_buffer.clear()
+
+    # Signal de fin : render_thread relaie vers output_queue -> writer_thread (voir
+    # render_thread_func).
+    render_queue.put(None)
+
     reader_thread.join()
+    render_thread.join()
     writer_thread.join()
-    
+
+    t_wall_total = time.perf_counter() - t_wall_start
+    saved_count = timing_state["saved_count"]
+    pbar.close()
+
     cap.release()
     video_writer.release()
 
@@ -506,15 +559,15 @@ if __name__ == "__main__":
     else:
         print("❌ La vidéo n'a pas été créée.")
 
-    # Repartition temps GPU vs CPU (option A, 2026-07-19) - permet de savoir ou porter
-    # l'effort d'optimisation avant d'agir a l'aveugle.
-    total_time = sum(timing_totals.values())
-    if total_time > 0 and saved_count > 0:
-        print("\n⏱️  Répartition du temps (hors I/O lecteur/écrivain, threads séparés) :")
-        for key, label in (("preprocess", "Pré-traitement CPU"), ("gpu", "Inférence GPU (sync)"), ("cpu_render", "Rendu canevas CPU")):
-            t = timing_totals[key]
-            print(f"   {label:22s} : {t:7.2f}s ({100*t/total_time:5.1f}%)")
-        print(f"   {'Total mesuré':22s} : {total_time:7.2f}s")
-        print(f"   Débit GPU pur          : {saved_count / timing_totals['gpu']:.2f} it/s")
-        print(f"   Débit CPU pur (rendu)  : {saved_count / timing_totals['cpu_render']:.2f} it/s")
-        print(f"   Débit combiné mesuré   : {saved_count / total_time:.2f} it/s")
+    # Repartition temps (option A, 2026-07-19) - adaptee au pipelining GPU/CPU : les
+    # buckets "preprocess"/"gpu_dispatch" (thread principal) et "cpu_render" (render_thread)
+    # tournent desormais en PARALLELE, donc leur somme ne correspond plus au temps mur reel
+    # (t_wall_total, mesure separement) - la comparer aux runs precedents (sequentiels,
+    # somme == temps mur) montre directement le gain du recouvrement.
+    if t_wall_total > 0 and saved_count > 0:
+        print("\n⏱️  Pipelining GPU/CPU (2026-07-19) - buckets paralleles, ne pas sommer :")
+        print(f"   Pré-traitement CPU (dispatch)   : {timing_state['preprocess']:7.2f}s")
+        print(f"   Dispatch GPU (async, hors calcul): {timing_state['gpu_dispatch']:7.2f}s")
+        print(f"   Rendu CPU (incl. attente GPU)   : {timing_state['cpu_render']:7.2f}s")
+        print(f"   Temps mur total (réel, mesuré)  : {t_wall_total:7.2f}s")
+        print(f"   Débit combiné réel              : {saved_count / t_wall_total:.2f} it/s")
