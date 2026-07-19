@@ -4,7 +4,7 @@ Schema d'echange heatmap+taille pour JAX_DETECTOR (AD-18).
 Ce module est la source unique de verite pour le format des cibles d'entrainement
 heatmap+taille (detection par point central, style CenterNet/CornerNet). Consommateurs
 prevus (AD-18, ARCHITECTURE-SPINE.md 2026-07-15, Binds: cite les 3) :
-  - fighterjet_detection_dataset_tools_v2.py (Story 7.4, producteur : encode_detection_targets)
+  - dataset_builder/jax_detector_dataset_tools.py (Story 7.4, producteur : encode_detection_targets)
   - data_management.py, nouvelle classe de chargeur (Story 7.5, consommateur)
   - loss_functions.py, nouvelles fonctions de perte (Story 7.3, consommateur : doit lire
     la meme geometrie heatmap/taille que celle produite ici)
@@ -75,6 +75,8 @@ def _gaussian_radius(height: float, width: float, min_overlap: float = 0.7) -> f
     ce dataset - c'est un hyperparametre d'entrainement (a ajuster empiriquement
     plus tard dans l'Epic 7), pas un contrat d'interface fige par cette story.
     """
+    assert 0.0 < min_overlap < 1.0, f"min_overlap doit etre dans (0, 1), recu {min_overlap}"
+
     a1, b1 = 1.0, (height + width)
     c1 = width * height * (1 - min_overlap) / (1 + min_overlap)
     sq1 = math.sqrt(b1 ** 2 - 4 * a1 * c1)
@@ -159,6 +161,8 @@ def encode_detection_targets(
 
     Returns: {"heatmap": (H,W,1) float32, "size": (H,W,2) float32} - voir docstring de module.
     """
+    assert orig_w > 0 and orig_h > 0, f"orig_w/orig_h doivent etre > 0, recu ({orig_w}, {orig_h})"
+
     W, H = target_size  # target_size = (W, H), meme convention que fighterjet_detection_dataset_tools.py
     heatmap = np.zeros((H, W, 1), dtype=np.float32)
     size_map = np.zeros((H, W, 2), dtype=np.float32)
@@ -242,6 +246,8 @@ def decode_detection_targets(
     de vraies predictions de modele (jamais exactement a egalite) et ou la taille de
     fenetre redeviendra determinante.
     """
+    assert peak_window % 2 == 1, f"peak_window doit etre impair, recu {peak_window}"
+
     hm = heatmap[:, :, 0]
     H, W = hm.shape
     pad = peak_window // 2

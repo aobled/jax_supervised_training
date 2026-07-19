@@ -2,7 +2,7 @@
 baseline_commit: 30c1b47e9e8b3b620319f2cecc1824271f2cc4b7
 ---
 
-# Story 7.4: dataset_builder/fighterjet_detection_dataset_tools_v2.py — génération des chunks depuis raw_boxes
+# Story 7.4: dataset_builder/jax_detector_dataset_tools.py — génération des chunks depuis raw_boxes
 
 Status: done
 
@@ -16,13 +16,13 @@ so that `JAX_DETECTOR` dispose d'un dataset d'entraînement, sans jamais toucher
 
 ## Acceptance Criteria
 
-1. **Given** le schéma d'échange défini en Story 7.1 (`encode_detection_targets`, `HEATMAP_KEY`/`SIZE_KEY`) **When** `dataset_builder/fighterjet_detection_dataset_tools_v2.py` encode les `raw_boxes` d'une image **Then** il produit des chunks `.npz` contenant des tableaux **empilés** (`N` images par chunk, même convention que l'outil actuel) sous les clés `images`, `HEATMAP_KEY` et `SIZE_KEY`, à la résolution de config `JAX_DETECTOR` (pas full-HD, NFR2).
+1. **Given** le schéma d'échange défini en Story 7.1 (`encode_detection_targets`, `HEATMAP_KEY`/`SIZE_KEY`) **When** `dataset_builder/jax_detector_dataset_tools.py` encode les `raw_boxes` d'une image **Then** il produit des chunks `.npz` contenant des tableaux **empilés** (`N` images par chunk, même convention que l'outil actuel) sous les clés `images`, `HEATMAP_KEY` et `SIZE_KEY`, à la résolution de config `JAX_DETECTOR` (pas full-HD, NFR2).
 2. **Given** `dataset_builder/fighterjet_detection_dataset_tools.py` (l'outil actuel, approche masque) **When** le nouveau script est créé **Then** il n'est ni modifié ni supprimé — fichier séparé, coexistence complète (AD-20).
 3. **Given** le pattern déjà en place dans l'outil actuel (résolution source quelconque → résolution de config stockée, coordonnées rescalées proportionnellement) **When** le nouveau script traite des images sources de résolution variable **Then** il applique le même principe de rescale proportionnel avant encodage (délégué à `encode_detection_targets`, Story 7.1, qui l'implémente déjà).
 
 ## Tasks / Subtasks
 
-- [x] Task 1: Créer `dataset_builder/fighterjet_detection_dataset_tools_v2.py` avec `process_detection_dataset_v2(root_dirs, output_dir, split_name, target_size, max_boxes, chunk_size, grayscale)` — même signature que `process_detection_dataset` (`dataset_builder/fighterjet_detection_dataset_tools.py:10-18`) (AC: 1, 2)
+- [x] Task 1: Créer `dataset_builder/jax_detector_dataset_tools.py` avec `process_detection_dataset_v2(root_dirs, output_dir, split_name, target_size, max_boxes, chunk_size, grayscale)` — même signature que `process_detection_dataset` (`dataset_builder/fighterjet_detection_dataset_tools.py:10-18`) (AC: 1, 2)
   - [x] Scan JSON + regroupement par image source : **réimplémenté** (pas importé), identique en logique aux lignes 37-77 de l'outil actuel — cette partie n'est pas exposée comme fonction séparée dans le fichier existant, et AD-20 interdit d'y toucher pour l'extraire ; la duplication de cette glue code (pas un algorithme, juste du parsing JSON) est assumée, pas un oubli. Préserver le même comportement tolérant que l'original : image manquante → `continue` silencieux (ligne 59-61), exception de parsing JSON → ignorée (ligne 73-75), `np.random.shuffle` de la liste d'images avant chunking (ligne 81) — ne pas durcir ce comportement sans raison, ce n'est pas le sujet de cette story
   - [x] Chargement image (PIL, conversion RGB/Grayscale selon `grayscale`) + resize **LANCZOS** (`Image.Resampling.LANCZOS`, identique à `dataset_builder/fighterjet_detection_dataset_tools.py:104`) — même méthode, pertinent pour la parité pixel que la Story 8.1 validera plus tard côté inférence
   - [x] Pour chaque image : appeler `encode_detection_targets(raw_boxes, orig_w, orig_h, target_size, max_boxes)` (Story 7.1) — ne pas réimplémenter le rescale ou la génération de heatmap
@@ -50,7 +50,7 @@ Chunk `_v2` (heatmap+taille) : `{"images": (N,H,W,C), HEATMAP_KEY: (N,H,W,1), SI
 
 ### Project Structure Notes
 
-- Nouveau fichier `dataset_builder/fighterjet_detection_dataset_tools_v2.py` à la racine (convention plate du projet).
+- Nouveau fichier `dataset_builder/jax_detector_dataset_tools.py` à la racine (convention plate du projet).
 - `dataset_builder/fighterjet_detection_dataset_tools.py` : **fichier UPDATE zéro**, lu uniquement comme référence (AD-20).
 - Dépend de `detection_target_encoding.py` (Story 7.1, déjà implémentée) et anticipe `dataset_configs.py::JAX_DETECTOR` (Story 7.7, pas encore créée — le bloc `__main__` de cette story peut être écrit contre une config qui n'existe pas encore tant que la story n'est pas exécutée en pratique ; documenté explicitement pour que le dev agent ne s'étonne pas d'un `KeyError` avant Story 7.7).
 
@@ -72,11 +72,11 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### Debug Log References
 
-`python3 tests/test_fighterjet_detection_dataset_tools_v2.py` — 2/2 tests passés (shapes/clés de chunk sur jeu synthétique 3 images, round-trip décodage réel via `decode_detection_targets` sur exemples extraits d'un chunk produit).
+`python3 tests/test_jax_detector_dataset_tools.py` — 2/2 tests passés (shapes/clés de chunk sur jeu synthétique 3 images, round-trip décodage réel via `decode_detection_targets` sur exemples extraits d'un chunk produit).
 
 ### Completion Notes List
 
-- `dataset_builder/fighterjet_detection_dataset_tools_v2.py` créé à la racine, `dataset_builder/fighterjet_detection_dataset_tools.py` non touché (vérifié : aucune modification, AD-20).
+- `dataset_builder/jax_detector_dataset_tools.py` créé à la racine, `dataset_builder/fighterjet_detection_dataset_tools.py` non touché (vérifié : aucune modification, AD-20).
 - Scan JSON + regroupement par image réimplémenté à l'identique (même comportement tolérant : image manquante → `continue` silencieux, exception JSON → ignorée, `np.random.shuffle` avant chunking).
 - Chargement PIL + resize LANCZOS identique à l'outil actuel (`Image.Resampling.LANCZOS`).
 - `encode_detection_targets` (Story 7.1) appelée par image — aucune réimplémentation du rescale/gaussien/plafond `max_boxes`.
@@ -87,8 +87,8 @@ Claude Sonnet 5 (claude-sonnet-5)
 
 ### File List
 
-- `dataset_builder/fighterjet_detection_dataset_tools_v2.py` (nouveau)
-- `tests/test_fighterjet_detection_dataset_tools_v2.py` (nouveau)
+- `dataset_builder/jax_detector_dataset_tools.py` (nouveau)
+- `tests/test_jax_detector_dataset_tools.py` (nouveau)
 
 ## Senior Developer Review (AI)
 
@@ -102,7 +102,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 - Nommage de fichier vérifié programmatiquement via `fnmatch` (pas visuellement) : `jax_detector_targets_*_chunk*.npz` ne matche jamais `dataset_detection_*_chunk*.npz`, confirmé sur plusieurs cas y compris des faux positifs potentiels.
 - Fidélité ligne à ligne du scan JSON/regroupement confirmée contre l'outil actuel (comportement tolérant préservé : `continue` silencieux, `except: pass`, `np.random.shuffle`).
 - Test relu et confirmé non trivial : un encodeur cassé (heatmap tout à zéro) ferait échouer `test_decode_roundtrip_on_extracted_example`, ce n'est pas une assertion vide de sens.
-- `python3 tests/test_fighterjet_detection_dataset_tools_v2.py` ré-exécuté : 2/2 passés.
+- `python3 tests/test_jax_detector_dataset_tools.py` ré-exécuté : 2/2 passés.
 
 ### Findings
 
@@ -116,4 +116,4 @@ Aucun HIGH ni MEDIUM identifié par la revue initiale. Trois LOW optionnels (cou
 
 Corrigé : `_save_chunk_v2` vide désormais chaque liste source (`.clear()`) immédiatement après son empilement (au lieu d'attendre la fin de la fonction), et appelle `gc.collect()` + `ctypes.CDLL("libc.so.6").malloc_trim(0)` après l'écriture du chunk (nouvelle fonction `_release_freed_memory_to_os()`, garde défensive si `libc.so.6` indisponible).
 
-Vérifié empiriquement (pas seulement en théorie) : script de test dédié (`test_save_chunk_memory.py`, scratchpad) appelant `_save_chunk_v2` 3 fois de suite avec des données synthétiques à `chunk_size=10000`, RSS mesurée via `/proc/self/status` à chaque étape — motif en dents de scie parfait, RSS retombe à ~30-50 Mo après **chaque** chunk (contre un pic de construction ~7,7 Go), sans aucune accumulation sur 3 chunks consécutifs. Pic réel mesuré (~7,7 Go à `chunk_size=10000`) plus bas que l'estimation théorique initiale (×2 pic simultané), grâce au `.clear()` qui réduit le chevauchement listes/tableaux empilés. `tests/test_fighterjet_detection_dataset_tools_v2.py` re-passé (2/2) après ce correctif, aucune régression.
+Vérifié empiriquement (pas seulement en théorie) : script de test dédié (`test_save_chunk_memory.py`, scratchpad) appelant `_save_chunk_v2` 3 fois de suite avec des données synthétiques à `chunk_size=10000`, RSS mesurée via `/proc/self/status` à chaque étape — motif en dents de scie parfait, RSS retombe à ~30-50 Mo après **chaque** chunk (contre un pic de construction ~7,7 Go), sans aucune accumulation sur 3 chunks consécutifs. Pic réel mesuré (~7,7 Go à `chunk_size=10000`) plus bas que l'estimation théorique initiale (×2 pic simultané), grâce au `.clear()` qui réduit le chevauchement listes/tableaux empilés. `tests/test_jax_detector_dataset_tools.py` re-passé (2/2) après ce correctif, aucune régression.

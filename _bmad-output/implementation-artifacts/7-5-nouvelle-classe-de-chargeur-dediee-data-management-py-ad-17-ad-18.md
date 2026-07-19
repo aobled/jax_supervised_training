@@ -81,7 +81,7 @@ Claude Sonnet 5 (claude-sonnet-5)
 - **`tf.clip_by_value(0,1)` appliqué uniquement au heatmap, jamais à la taille** (Task 4bis) — vérifié empiriquement par le test (`augmented_w > 1.0`, une valeur de ~32px survit intacte, un clip l'aurait écrasée à 1.0).
 - Brightness/contrast restent appliqués uniquement à l'image (Task 4ter), non touchés.
 - `get_dataset()` identique au pattern `DetectionDataset.get_dataset()` (train augmenté, val non augmenté).
-- Test Task 6 : chunk réel produit via `dataset_builder/fighterjet_detection_dataset_tools_v2.py` (Story 7.4) sur un jeu synthétique à bbox connue, `do_zoom=True`/`scale=1.15` forcés de façon déterministe par monkeypatch de `tf.random.uniform` (distinction par arguments par défaut vs bornes explicites) — pas de dépendance au tirage aléatoire, conforme à la demande explicite de la story.
+- Test Task 6 : chunk réel produit via `dataset_builder/jax_detector_dataset_tools.py` (Story 7.4) sur un jeu synthétique à bbox connue, `do_zoom=True`/`scale=1.15` forcés de façon déterministe par monkeypatch de `tf.random.uniform` (distinction par arguments par défaut vs bornes explicites) — pas de dépendance au tirage aléatoire, conforme à la demande explicite de la story.
 
 ### File List
 

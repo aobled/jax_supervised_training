@@ -301,7 +301,11 @@ class Reporter:
         # Concaténer tous les batches
         images = np.concatenate(all_images, axis=0)
         labels = np.concatenate(all_labels, axis=0)
-        num_classes = len(np.unique(labels))
+        # len(np.unique(labels)) sous-compte si une classe rare est absente du split de
+        # validation - le modèle peut quand même la prédire (sortie dimensionnée sur le
+        # vrai nombre de classes), provoquant un IndexError plus bas. self.class_names
+        # reflète le vrai nombre de classes du modèle.
+        num_classes = len(self.class_names) if self.class_names else len(np.unique(labels))
         
         print(f"📊 Dataset: {len(images)} images, {num_classes} classes")
         
@@ -397,8 +401,8 @@ class Reporter:
         # Valeurs par défaut pour Spyder
         if dataset_config is None:
             from dataset_configs import get_dataset_config
-            dataset_config = get_dataset_config("FIGHTERJET_8CLASSES")
-            print("📊 Configuration par défaut: FIGHTERJET_8CLASSES")
+            dataset_config = get_dataset_config("FIGHTERJET_CLASSIFICATION")
+            print("📊 Configuration par défaut: FIGHTERJET_CLASSIFICATION")
         
         if images_dir is None:
             # Utiliser le premier dossier de validation
@@ -614,7 +618,7 @@ class Reporter:
             # Affichage de cette grille
             rows, cols = grid_size
             fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 3.5))
-            axes = axes.flatten()
+            axes = np.atleast_1d(axes).flatten()
             
             for idx, data in enumerate(grid_data):
                 if idx >= rows * cols:

@@ -19,7 +19,7 @@ Deux forces convergent sur le même chantier. **Une douleur réelle** : dans le 
 
 - **CAP-1** — Entraînement de `JAX_DETECTOR`
   - **intent:** Un nouveau modèle de détection par point central (heatmap de centres + régression de taille), remplaçant la segmentation UNet, peut être entraîné sur des chunks `.npz` classiques à 224×224 — jamais sur un dataset full-HD (ratio ~41× prohibitif, déjà écarté par le pattern d'outillage existant).
-  - **success:** `JAX_DETECTOR` s'entraîne de bout en bout via `dataset_builder/fighterjet_detection_dataset_tools_v2.py` + de nouvelles classes dédiées (`task_strategies.py`, `data_management.py`) et produit des prédictions heatmap+taille exploitables sur un jeu de validation.
+  - **success:** `JAX_DETECTOR` s'entraîne de bout en bout via `dataset_builder/jax_detector_dataset_tools.py` + de nouvelles classes dédiées (`task_strategies.py`, `data_management.py`) et produit des prédictions heatmap+taille exploitables sur un jeu de validation.
 
 - **CAP-2** — Composition d'inférence JAX-native unifiée (JAX Single-Pass)
   - **intent:** À partir d'une image 1920×1080 grayscale, une unique fonction JIT-compilée (`build_single_pass_predict_fn`) produit jusqu'à 20 détections (boîte + classe + scores), sans `cv2.findContours` ni boucle de recadrage python sur le chemin critique.

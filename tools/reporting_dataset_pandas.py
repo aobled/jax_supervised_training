@@ -240,29 +240,30 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset_configs import get_dataset_config
 
-DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/classification'
-DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
-try:
-    config = get_dataset_config(DATASET_NAME)
-    CLASS_NAMES = config["class_names"]
-    print(f"📊 Classes ({len(CLASS_NAMES)}): {CLASS_NAMES}")
-except Exception as e:
-    print(f"❌ Erreur chargement config: {e}")
-    sys.exit(1)
-#------------------------------
+if __name__ == "__main__":
+    DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/detection'
+    DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
+    try:
+        config = get_dataset_config(DATASET_NAME)
+        CLASS_NAMES = config["class_names"]
+        print(f"📊 Classes ({len(CLASS_NAMES)}): {CLASS_NAMES}")
+    except Exception as e:
+        print(f"❌ Erreur chargement config: {e}")
+        sys.exit(1)
+    #------------------------------
 
-# Charger les données
-df = load_dataset_to_dataframe(DATASET_PATH)
+    # Charger les données
+    df = load_dataset_to_dataframe(DATASET_PATH)
 
-reporting_groupby_class_and_split(df)
-#reporting_groupby_box_count(df)
-#reporting_boxes_on_wrong_directory(df)
+    #reporting_groupby_class_and_split(df)
+    reporting_groupby_box_count(df)
+    #reporting_boxes_on_wrong_directory(df)
 
-#reporting_single_boxes_target_class_size(df, class_list=['f8', 'unknown'], target_size=64)
-#reporting_boxes_target_class_size(df, class_list=['su57'], target_size=64)
-#reporting_single_boxes_target_class_size(df, class_list=CLASS_NAMES, target_size=2)
-#reporting_at_least_one_box_not_in_class_list(df, class_list=CLASS_NAMES)
+    #reporting_single_boxes_target_class_size(df, class_list=['f8', 'unknown'], target_size=64)
+    #reporting_boxes_target_class_size(df, class_list=['su57'], target_size=64)
+    #reporting_single_boxes_target_class_size(df, class_list=CLASS_NAMES, target_size=2)
+    #reporting_at_least_one_box_not_in_class_list(df, class_list=CLASS_NAMES)
 
-#reporting_single_classe_images(df, target_class='f8', min_size=16)
-reporting_all_images_in_class_list(df, class_list=['unknown', 't38'])
-#reporting_small_boxes(df, min_size=16)
+    #reporting_single_classe_images(df, target_class='f8', min_size=16)
+    #reporting_all_images_in_class_list(df, class_list=['unknown', 'alpahjet'])
+    #reporting_small_boxes(df, min_size=16)

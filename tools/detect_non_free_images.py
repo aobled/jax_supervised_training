@@ -1,4 +1,6 @@
 import os
+import shutil
+import glob
 import cv2
 import numpy as np
 
@@ -15,7 +17,11 @@ def detect_black_or_white_bands(root_dir, height_detection=10):
     # Extensions d'image valides
     valid_exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
-    for subdir, _, files in os.walk(root_dir):
+    for subdir, dirs, files in os.walk(root_dir):
+        # Ignorer les dossiers "errors" deja crees par un run precedent, pour eviter
+        # un nesting errors/errors/... si le script est relance sur le meme root_dir.
+        if "errors" in dirs:
+            dirs.remove("errors")
         for file in files:
             if not file.lower().endswith(valid_exts):
                 continue
@@ -44,9 +50,6 @@ def detect_black_or_white_bands(root_dir, height_detection=10):
                 mean_color = np.mean(region)
                 return mean_color < tol or mean_color > 255 - tol
 
-            import shutil
-            import glob
-            
             if is_black_or_white(left_rect) and is_black_or_white(right_rect):
                 print(f"→ Image suspecte : {file}")
             
@@ -61,7 +64,7 @@ def detect_black_or_white_bands(root_dir, height_detection=10):
             
                 # Déplacer les fichiers JSON associés
                 base_name, _ = os.path.splitext(file)
-                json_pattern = os.path.join(subdir, f"{base_name}*.json")
+                json_pattern = os.path.join(subdir, f"{base_name}_*.json")
             
                 for json_file in glob.glob(json_pattern):
                     dst_json = os.path.join(error_dir, os.path.basename(json_file))

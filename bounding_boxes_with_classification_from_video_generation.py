@@ -52,13 +52,22 @@ HEATMAP_BLUR_SIGMA = 14
 OUTPUT_DIR = "/home/aobled/Downloads/video_frames_annotated"
 FRAME_STRIDE = 1  # 1 = toutes les frames
 BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU, ex. GTX 1660 Ti 6 Go)
+# Nombre max de boîtes détectées par frame (Top-K sur le heatmap, inference_utils.py::
+# build_single_pass_predict_fn). Purement un choix d'inférence, figé à la construction de
+# predict_fn ci-dessous - AUCUN réentraînement requis pour le changer. À adapter par vidéo
+# selon le nombre réel d'avions attendus (discussion perf 2026-07-19, voir deferred-work.md) :
+# plus petit = crop+classification plus rapide, mais toute frame avec plus de MAX_BOXES avions
+# réels en perdrait silencieusement l'excédent (uniquement les pics de heatmap les moins confiants).
+MAX_BOXES = 2
 
-VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
-TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
+#VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
+#TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
 #VIDEO_PATH = "/home/aobled/Downloads/testvid2.mp4"
 #TARGET_CLASS_LIST = ["f15", "rafale", "mirage2000"]
-#VIDEO_PATH = "/home/aobled/Downloads/eaa2.mp4"
-#TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
+VIDEO_PATH = "/home/aobled/Downloads/eaa1.mp4"
+TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
+#VIDEO_PATH = "/home/aobled/Downloads/DEATH VALLEY - THE LAST SHOW OF FORCE  (4K).mp4"
+#TARGET_CLASS_LIST = ["f18", "f15", "f16", "f35", "a10", "c17", "f22","harrier"]
 
 # 3. Chargement de la config dataset
 try:
@@ -450,6 +459,7 @@ if __name__ == "__main__":
     predict_fn = build_single_pass_predict_fn(
         detector_checkpoint_path=DETECTOR_CHECKPOINT_PATH,
         classifier_checkpoint_path=CHECKPOINT_PATH,
+        k=MAX_BOXES,
     )
 
     print("✅ Modèles chargés.")

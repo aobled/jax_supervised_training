@@ -470,6 +470,7 @@ def build_single_pass_predict_fn(
     detector_checkpoint_path=None,
     classifier_checkpoint_path=None,
     resize_method="lanczos3",
+    k=20,
 ):
     """
     Assemblage final JAX Single-Pass (AD-16, Story 8.6) : RESIZE -> detecteur ->
@@ -484,14 +485,25 @@ def build_single_pass_predict_fn(
     resize_method : resultat empirique de la Story 8.1 (lanczos3+antialias=True) - passe
     explicitement, pas re-decide ici (meme discipline que _resize_for_detector, Story 8.2).
 
-    Contrat de sortie (AD-15/AC3) : {"boxes": (20,4), "classes": (20,), "class_scores":
-    (20,), "detection_scores": (20,), "valid_mask": (20,)} - 20 slots fixes. Precision
-    (revue independante Story 8.6) : les slots invalides ne sont PAS mis a zero - ils
-    portent des valeurs derivees du fond du heatmap (non-nulles, cf. Stories 8.3/8.4/8.5,
-    qui filtrent via valid_mask et non par mise a zero explicite). valid_mask reste la
-    SEULE autorite pour distinguer un slot reel d'un slot vide (jamais deduit de la
-    classification, ni du fait qu'une valeur soit ou non a zero) - un consommateur en
-    aval NE DOIT PAS inferer la validite d'un slot depuis ses valeurs numeriques.
+    k : nombre de slots de sortie (Top-K sur le heatmap, `_top_k_boxes`), fige a la
+    construction (parametre Python de `build_single_pass_predict_fn`, ferme par le
+    `@jax.jit` de `predict_fn` - pas un argument de `predict_fn` lui-meme, donc pas de
+    recompilation par appel tant que `k` ne change pas entre deux constructions).
+    Purement un choix d'inference : le modele produit toujours un heatmap dense
+    independant de `k` (Story 7.1/7.2), donc changer `k` ne necessite AUCUN reentrainement.
+    Discussion perf 2026-07-19 (voir deferred-work.md) : `k` est independant de
+    `max_boxes` (dataset_configs.py, cote entrainement) malgre leur valeur par defaut
+    commune - les faire diverger est un choix explicite, pas automatique.
+
+    Contrat de sortie (AD-15/AC3) : {"boxes": (k,4), "classes": (k,), "class_scores":
+    (k,), "detection_scores": (k,), "valid_mask": (k,)} - k slots fixes (20 par defaut,
+    valeur historique du contrat AD-15/AC3 Story 8.6). Precision (revue independante
+    Story 8.6) : les slots invalides ne sont PAS mis a zero - ils portent des valeurs
+    derivees du fond du heatmap (non-nulles, cf. Stories 8.3/8.4/8.5, qui filtrent via
+    valid_mask et non par mise a zero explicite). valid_mask reste la SEULE autorite pour
+    distinguer un slot reel d'un slot vide (jamais deduit de la classification, ni du fait
+    qu'une valeur soit ou non a zero) - un consommateur en aval NE DOIT PAS inferer la
+    validite d'un slot depuis ses valeurs numeriques.
 
     AD-20 : n'appelle jamais decode_segmentation_and_detect(_batch)/non_max_suppression
     (ancien pipeline FIGHTERJET_DETECTION, non modifie, non touche par ce chemin).
@@ -532,6 +544,11 @@ def build_single_pass_predict_fn(
     # non-carre. A corriger (uniformiser la convention entre les deux fonctions) avant
     # toute future config de detecteur non-carree - hors scope de cette story.
     detector_image_size = config_model["image_size"]
+    assert detector_image_size[0] == detector_image_size[1], (
+        f"detector_image_size doit rester carre (convention (H,W) dans "
+        f"_resize_for_detector vs (W,H) dans _rescale_boxes non uniformisee entre les "
+        f"deux fonctions, voir docstring ci-dessus) - recu {detector_image_size}"
+    )
     classifier_crop_size = tuple(config_clf["image_size"])
 
     @jax.jit
@@ -552,11 +569,18 @@ def build_single_pass_predict_fn(
         size_map = jnp.exp(heatmap_size[SIZE_KEY][0])
 
         filtered_heatmap = _extract_peaks(heatmap)
-        boxes_det, scores = _top_k_boxes(filtered_heatmap, size_map, k=20)
+        boxes_det, scores = _top_k_boxes(filtered_heatmap, size_map, k=k)
         valid_mask = scores > detection_score_threshold
 
         # RESCALE (Story 8.4) : inverse exact demi-pixel, meme source detector_image_size.
         boxes_orig = _rescale_boxes(boxes_det, detector_image_size, original_size=(1920, 1080))
+        # Garde ajoute en revue (2026-07-19) : _top_k_boxes ne filtre pas les tailles
+        # degenerees (w<=0 ou h<=0) sur une VRAIE prediction modele (documente comme tel
+        # dans son propre docstring, "a verifier en Story 8.6" - jamais fait). Une boite
+        # degeneree ne doit jamais compter comme valide, meme si son score brut depasse
+        # le seuil.
+        degenerate = (boxes_orig[..., 2] <= boxes_orig[..., 0]) | (boxes_orig[..., 3] <= boxes_orig[..., 1])
+        valid_mask = valid_mask & ~degenerate
 
         # CROP + normalisation classifieur (Story 8.5) : geometrie depuis `image` brute,
         # normalisation distincte de celle du detecteur, appliquee uniquement ici.

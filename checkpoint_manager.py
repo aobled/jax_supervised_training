@@ -86,8 +86,8 @@ class CheckpointManager:
                 checkpoint = pickle.load(f)
             print(f"📂 Checkpoint chargé: {self.checkpoint_path}")
             return checkpoint
-        except FileNotFoundError:
-            print(f"⚠️  Aucun checkpoint trouvé: {self.checkpoint_path}")
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError) as e:
+            print(f"⚠️  Aucun checkpoint valide trouvé: {self.checkpoint_path} ({e})")
             return None
     
     def resume_training(self, checkpoint, model, learning_rate: float, weight_decay: float):
@@ -132,12 +132,12 @@ class CheckpointManager:
         )
         
         # Restaurer l'état de l'optimiseur
-        state = state.replace(opt_state=checkpoint['model_state']['opt_state'])
+        state = state.replace(opt_state=checkpoint['model_state'].get('opt_state'))
         
         # Restaurer les variables d'entraînement
         # Rétrocompatibilité : Les anciens checkpoints sauvaient "best_val_acc" 
         # (même si c'était techniquement une loss négative en détection).
-        best_val_metric = checkpoint['training_state'].get('best_val_metric', checkpoint['training_state'].get('best_val_acc'))
+        best_val_metric = checkpoint['training_state'].get('best_val_metric', checkpoint['training_state'].get('best_val_acc', float('-inf')))
         patience_counter = checkpoint['training_state']['patience_counter']
         epoch = checkpoint['training_state']['epoch']
         

@@ -206,8 +206,8 @@ class DetectionStrategy(TaskStrategy):
         
         
     def compute_metrics(self, outputs, targets):
+        """Calcule le mIoU (Mean Intersection over Union) binaire pour la segmentation."""
         if self.metric_method == "segmentation_iou":
-            """Calcule le mIoU (Mean Intersection over Union) binaire pour la segmentation."""
             # Binarisation avec un seuil de 0.5
             threshold = 0.5
             preds = (outputs > threshold).astype(jnp.float32)
@@ -238,29 +238,34 @@ class DetectionStrategy(TaskStrategy):
             import cv2
             import numpy as np
             try:
+                batch_consumed = False
                 for vis_imgs, vis_masks in val_ds.take(1).as_numpy_iterator():
+                    batch_consumed = True
                     vars = {'params': final_state.params, 'batch_stats': final_state.batch_stats}
                     pred_masks = final_state.apply_fn(vars, vis_imgs, training=False)
-                    
+
                     # Sauvegarder juste un batch visuel pour debug
                     # Image 0
                     img0 = np.array(vis_imgs[0] * 255, dtype=np.uint8)
                     true0 = np.array(vis_masks[0] * 255, dtype=np.uint8)
                     pred0 = np.array(pred_masks[0] * 255, dtype=np.uint8)
-                    
+
                     # OpenCV a besoin d'un vrai tableau Numpy 2D (H, W) pour la ColorMap
                     pred0_flat = pred0[..., 0] if pred0.ndim == 3 and pred0.shape[-1] == 1 else pred0
                     heatmap = cv2.applyColorMap(pred0_flat, cv2.COLORMAP_JET)
-                    
+
                     # Conversion grayscale -> RGB si nécessaire pour la concatenation
                     if img0.shape[-1] == 1:
                         img0 = cv2.cvtColor(img0, cv2.COLOR_GRAY2BGR)
                     true0 = cv2.cvtColor(true0, cv2.COLOR_GRAY2BGR)
-                    
+
                     composite = cv2.hconcat([img0, true0, heatmap])
                     cv2.imwrite("final_detection_vis.png", composite)
                     break
-                print("✅ Visualisation de détection sémantique générée (final_detection_vis.png)")
+                if batch_consumed:
+                    print("✅ Visualisation de détection sémantique générée (final_detection_vis.png)")
+                else:
+                    print("⚠️  val_ds est vide - aucune visualisation générée (final_detection_vis.png absent)")
             except Exception as e:
                 print(f"❌ Erreur lors de la visualisation sémantique: {e}")
         elif self.report_method == "yolo_boxes":
@@ -343,7 +348,9 @@ class CenterNetDetectionStrategy(TaskStrategy):
             import cv2
             import numpy as np
             try:
+                batch_consumed = False
                 for vis_imgs, vis_targets in val_ds.take(1).as_numpy_iterator():
+                    batch_consumed = True
                     vars = {'params': final_state.params, 'batch_stats': final_state.batch_stats}
                     pred_outputs = final_state.apply_fn(vars, vis_imgs, training=False)
 
@@ -364,7 +371,10 @@ class CenterNetDetectionStrategy(TaskStrategy):
                     composite = cv2.hconcat([img0, true0, heatmap_vis])
                     cv2.imwrite("final_detection_centernet_vis.png", composite)
                     break
-                print("✅ Visualisation CenterNet générée (final_detection_centernet_vis.png)")
+                if batch_consumed:
+                    print("✅ Visualisation CenterNet générée (final_detection_centernet_vis.png)")
+                else:
+                    print("⚠️  val_ds est vide - aucune visualisation générée (final_detection_centernet_vis.png absent)")
             except Exception as e:
                 print(f"❌ Erreur lors de la visualisation CenterNet: {e}")
         else:

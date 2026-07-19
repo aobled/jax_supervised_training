@@ -5,6 +5,7 @@ Architecture orientée objet pour meilleure organisation
 
 import time
 import gc
+import math
 import jax
 import jax.numpy as jnp
 import optax
@@ -90,7 +91,6 @@ class Trainer:
         self.class_names = config.get("class_names", [])
         
         # Checkpoint manager
-        from checkpoint_manager import CheckpointManager
         ckpt_path = self.strategy.get_training_state_path(self.config)
         self.checkpoint_manager = CheckpointManager(ckpt_path)        
         # Fonctions JIT
@@ -246,6 +246,7 @@ class Trainer:
         total_loss = 0.0
         total_acc = 0.0
         nb_updates = 0
+        total_microbatches = 0
         
         # Itérer sur le dataset (cache ou TensorFlow)
         if isinstance(dataset, list):
@@ -293,9 +294,13 @@ class Trainer:
                     )
             
             # Métriques
-            total_loss += float(loss)
+            loss_value = float(loss)
+            if not math.isfinite(loss_value):
+                print(f"\n⚠️ Loss non-finie détectée ({loss_value}) - le run a probablement divergé")
+            total_loss += loss_value
             total_acc += float(step_acc)
             micro_count += 1
+            total_microbatches += 1
             
             # Appliquer quand on atteint accum_steps
             if micro_count == self.accum_steps:
@@ -331,9 +336,13 @@ class Trainer:
             # Synchronisation finale
             self.state = jax.block_until_ready(self.state)
         
-        mean_loss = total_loss / ((nb_updates * self.accum_steps) if nb_updates > 0 else 1)
-        mean_acc = total_acc / ((nb_updates * self.accum_steps) if nb_updates > 0 else 1)
-        
+        if total_microbatches == 0:
+            print("⚠️ Epoch sans aucun batch traité (dataset d'entraînement vide) - loss/accuracy à 0.0")
+            return 0.0, 0.0, rng
+
+        mean_loss = total_loss / total_microbatches
+        mean_acc = total_acc / total_microbatches
+
         return mean_loss, mean_acc, rng
     
     def evaluate(self, dataset) -> Tuple[float, float]:
@@ -373,8 +382,12 @@ class Trainer:
             val_acc += float(acc)
             num_batches += 1
         
+        if num_batches == 0:
+            print("⚠️ Évaluation sans aucun batch de validation traité (dataset de validation vide)")
+            return 0.0, 0.0
+
         return val_loss / num_batches, val_acc / num_batches
-    
+
     def train(self, train_dataset, val_dataset, rng, resume_from_checkpoint: bool = True):
         """
         Lance l'entraînement complet

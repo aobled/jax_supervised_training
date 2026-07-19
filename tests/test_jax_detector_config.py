@@ -38,7 +38,7 @@ def test_output_prefix_distinct_from_fighterjet_detection():
     assert os.path.dirname(jax_prefix) != os.path.dirname(fj_prefix), \
         "les répertoires de sortie doivent être distincts (AD-20, pas de collision)"
     assert os.path.basename(jax_prefix) == "jax_detector_targets", \
-        "doit correspondre exactement au préfixe codé en dur dans fighterjet_detection_dataset_tools_v2.py (Story 7.4)"
+        "doit correspondre exactement au préfixe codé en dur dans dataset_builder/jax_detector_dataset_tools.py (Story 7.4)"
     print("OK - test_output_prefix_distinct_from_fighterjet_detection")
 
 

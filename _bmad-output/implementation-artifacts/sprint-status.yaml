@@ -172,7 +172,7 @@ action_items:
   - epic: "6"
     action: "Decider de la prochaine initiative : dette technique differee (deferred-work.md) ou nouveau chantier produit"
     owner: "Aymeric"
-    status: open
+    status: done
   - epic: "6"
     action: "Envisager une revue de code legere meme sur les epics mecaniques multi-fichiers, pour rattraper les oublis ponctuels avant la verification finale (cf. titre docs/index.md manque en 6.3)"
     owner: "futur cycle"

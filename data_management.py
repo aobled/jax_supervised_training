@@ -421,7 +421,7 @@ class DetectionDataset:
 class CenterNetDetectionDataset:
     """
     Gestionnaire de dataset pour la détection JAX_DETECTOR (heatmap+taille, AD-9/AD-17/AD-18).
-    Charge les chunks générés par fighterjet_detection_dataset_tools_v2.py (Story 7.4).
+    Charge les chunks générés par dataset_builder/jax_detector_dataset_tools.py (Story 7.4).
     Classe séparée de DetectionDataset (AD-17) - ne modifie ni n'étend celle-ci.
     """
     def __init__(self, output_prefix: str, image_size: tuple = (224, 224), batch_size: int = 16, grayscale: bool = False, augmentation_params: dict = None):
@@ -451,7 +451,7 @@ class CenterNetDetectionDataset:
             error_msg = (
                 f"\n❌ ERREUR: Chunks introuvables pour la détection JAX_DETECTOR !\n"
                 f"   Je m'attendais à trouver {self.output_prefix}_[split]_chunk*.npz\n"
-                f"💡 LANCEZ D'ABORD : python fighterjet_detection_dataset_tools_v2.py"
+                f"💡 LANCEZ D'ABORD : python dataset_builder/jax_detector_dataset_tools.py"
             )
             print(error_msg)
             exit(1)

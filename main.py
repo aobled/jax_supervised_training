@@ -50,7 +50,7 @@ print("Using device:", device)
 # Fonction principale
 # ======================
 
-def main(dataset_name="FIGHTERJET_9CLASSES"):
+def main(dataset_name="FIGHTERJET_CLASSIFICATION"):
     """
     Fonction principale d'entraînement - Version POO
     

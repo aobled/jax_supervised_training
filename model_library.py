@@ -4,6 +4,7 @@ Contient tous les modèles utilisés pour l'entraînement
 """
 
 import math
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +19,7 @@ class SeparableConv(nn.Module):
     """Convolution séparable (Depthwise + Pointwise)"""
     filters: int
     kernel_size: tuple
-    strides: tuple = (1, 1) # ✅ Added strides support
+    strides: tuple = (1, 1)
     padding: str = "SAME"
     use_bias: bool = False
 
@@ -28,7 +29,7 @@ class SeparableConv(nn.Module):
         x = nn.Conv(
             features=x.shape[-1],
             kernel_size=self.kernel_size,
-            strides=self.strides, # ✅ Apply strides here
+            strides=self.strides,
             padding=self.padding,
             feature_group_count=x.shape[-1],
             use_bias=self.use_bias,
@@ -523,6 +524,9 @@ class AircraftDetectorCenterNet(nn.Module):
         # centres et au fond apres 1 epoch, archive/diagnose_heatmap_predictions.py). Corrige en
         # demarrant sigmoid(biais) = heatmap_prior (la vraie proportion de positifs),
         # au lieu de 0.5 non-informatif.
+        assert 0.0 < self.heatmap_prior < 1.0, (
+            f"heatmap_prior doit etre dans (0,1) - log(p/(1-p)) indefini sinon, recu {self.heatmap_prior}"
+        )
         heatmap_bias_init = math.log(self.heatmap_prior / (1.0 - self.heatmap_prior))
         heatmap = nn.Conv(1, (1, 1), padding="SAME", bias_init=nn.initializers.constant(heatmap_bias_init))(u3)
         heatmap = nn.sigmoid(heatmap)
@@ -646,6 +650,27 @@ def get_model_info(model_name):
             'params': '~150K',
             'size': '~1MB',
             'best_for': 'Données astronomiques (séries temporelles 1D) pour la recherche d\'exoplanètes.'
+        },
+        'aircraft_detector_centernet': {
+            'name': 'AircraftDetectorCenterNet',
+            'description': 'Détection par point central (heatmap de centres + régression de taille), anchor-free, style CenterNet/CornerNet.',
+            'params': 'non mesuré ici (voir checkpoint)',
+            'size': 'non mesuré ici (voir checkpoint)',
+            'best_for': 'Détection multi-instances (formations serrées), remplace la segmentation U-Net (AD-9/AD-10).'
+        },
+        'sophisticated_cnn_128_plus': {
+            'name': 'SophisticatedCNN128Plus',
+            'description': 'CNN avec convolutions séparables, résiduelles, SE + Spatial Attention, pour images 128×128.',
+            'params': '~4M',
+            'size': 'non mesuré ici (voir checkpoint)',
+            'best_for': 'Classification fine-grained (FIGHTERJET_CLASSIFICATION).'
+        },
+        'sophisticated_cnn_32_plus': {
+            'name': 'SophisticatedCNN32Plus',
+            'description': 'Variante réduite de SophisticatedCNN128Plus pour images 32×32 (canaux/profondeur de pooling adaptés).',
+            'params': 'non mesuré ici (voir checkpoint)',
+            'size': 'non mesuré ici (voir checkpoint)',
+            'best_for': 'Classification sur petites images (ex. CIFAR-10).'
         }
     }
 
@@ -657,4 +682,4 @@ def get_model_info(model_name):
 
 class TrainStateWithBatchStats(train_state.TrainState):
     """TrainState étendu pour gérer batch_stats"""
-    batch_stats: flax.core.FrozenDict = None
+    batch_stats: Optional[flax.core.FrozenDict] = None

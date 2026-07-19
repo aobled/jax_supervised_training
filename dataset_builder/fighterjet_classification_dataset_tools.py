@@ -107,18 +107,20 @@ def process_dataset_stretched(
     target_size=128,
     grayscale=False,  # 🎨 Option pour images en noir & blanc
     overlap_threshold=0.1,  # 🔥 Nouveau: Seuil de superposition (0.1 = 10%)
-    categories = 'a10'
+    categories=None  # Liste de category_name valides ; un str ferait un test de sous-chaine, pas d'appartenance
 ):
     """
     Traite les images du dataset avec resize stretched (sans préserver le ratio)
     PRÉSERVE LA RÉPARTITION train/val si présente dans le répertoire source
-    
+
     Args:
         root_dir: Répertoire racine contenant les images et JSONs (peut contenir train/ et val/)
         output_dir: Répertoire de sortie (créera train/ et val/ automatiquement si nécessaire)
         target_size: Taille cible (carré)
         grayscale: Si True, convertit en niveaux de gris (L) au lieu de RGB
     """
+    if categories is None:
+        categories = []
     mode = "L" if grayscale else "RGB"
     mode_str = "Grayscale" if grayscale else "RGB"
     print(f"🎨 Mode de traitement: {mode_str}")
@@ -448,7 +450,7 @@ if __name__ == "__main__":
     old_chunks = glob.glob(f"{OUTPUT_PREFIX}_*_chunk*.npz")
     for chunk in old_chunks:
         try: os.remove(chunk)
-        except: pass
+        except OSError: pass
 
     create_chunked_npz_classification(
         dataset_dir=OUTPUT_DIR_STRETCHED,

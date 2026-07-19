@@ -455,9 +455,6 @@ def compute_focal_loss(outputs, targets, gamma=2.0, alpha=1.0, use_onehot_labels
     outputs: (Batch, NumClasses) logits
     targets: (Batch,) labels entiers ou (Batch, NumClasses) one-hot selon use_onehot_labels
     """
-    import jax
-    import jax.numpy as jnp
-    
     if not use_onehot_labels:
         targets = jax.nn.one_hot(targets, outputs.shape[-1])
         

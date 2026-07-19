@@ -21,7 +21,7 @@ from PIL import Image
 
 from data_management import CenterNetDetectionDataset
 from detection_target_encoding import HEATMAP_KEY, SIZE_KEY
-from fighterjet_detection_dataset_tools_v2 import process_detection_dataset_v2
+from jax_detector_dataset_tools import process_detection_dataset_v2
 
 
 IMAGE_SIZE = (224, 224)

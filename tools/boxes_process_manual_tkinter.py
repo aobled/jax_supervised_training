@@ -13,7 +13,7 @@ class ImageManager:
         self.zoom_factor = 1.0
         self.zoom_step = 1.02
         self.drag_step = 1
-        self.cursor_size = 256
+        self.cursor_size = 256  
 
         self.setup_folders()
         self.load_images()

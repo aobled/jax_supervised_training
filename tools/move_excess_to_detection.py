@@ -60,7 +60,7 @@ def move_excess_images():
 
         # Trouver et déplacer les JSON associés (ex: nomimage_0.json, nomimage_1.json, etc.)
         base_name = os.path.splitext(img_name)[0]
-        json_pattern = os.path.join(INPUT_DIR, f"{base_name}*.json")
+        json_pattern = os.path.join(INPUT_DIR, f"{base_name}_*.json")
         json_files = glob.glob(json_pattern)
 
         for json_path in json_files:

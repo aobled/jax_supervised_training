@@ -77,8 +77,9 @@ def process_duplicates(directory, duplicates):
             os.remove(dup_path)
 
             base_name = dup.split('.')[0]
+            pattern = re.compile(rf"^{re.escape(base_name)}_([1-9]\d?|0)\.json$")
             for json_filename in os.listdir(directory):
-                if json_filename.startswith(base_name) and json_filename.endswith('.json'):
+                if pattern.match(json_filename):
                     json_path = os.path.join(directory, json_filename)
                     os.remove(json_path)
 
@@ -120,10 +121,11 @@ def process_all_files(directory):
             except Exception as e:
                 print(f"Error processing {filename}: {e}")
 
-# Exemple d'utilisation
-threshold = 1
+if __name__ == "__main__":
+    # Exemple d'utilisation
+    threshold = 1
 
-directory = '/home/aobled/Downloads/tmp_multi'
-duplicates = find_duplicates_optimized(directory, threshold)
-process_duplicates(directory, duplicates)
-process_all_files(directory)
+    directory = '/home/aobled/Downloads/tmp_multi'
+    duplicates = find_duplicates_optimized(directory, threshold)
+    process_duplicates(directory, duplicates)
+    process_all_files(directory)

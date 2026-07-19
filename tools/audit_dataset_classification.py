@@ -147,9 +147,9 @@ def run_audit():
     flush_batch()
     
     # --- Création du CSV et reporting Pandas ---
-    print("\n💾 Export des résultats vers audit_classification_results.csv...")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "audit_results.csv")
+    print(f"\n💾 Export des résultats vers {csv_path}...")
     
     df = pd.DataFrame(results)
     if len(df) == 0:

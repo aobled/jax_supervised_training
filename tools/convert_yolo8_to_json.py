@@ -178,11 +178,7 @@ def process_yolo8_dataset():
                 else:
                     # Fallback : chercher dans le même répertoire
                     annotation_file = os.path.join(root, f"label_{base_name}.txt")
-                
-                print("TRAITEMENT = ", image_path, "annotation=", annotation_file)
-                print("EXISTS = ", os.path.exists(annotation_file))
-                print("ABSPATH = ", os.path.abspath(annotation_file))
-                
+
                 if os.path.exists(annotation_file):
                     # Obtenir les dimensions de l'image
                     img_width, img_height = get_image_dimensions(image_path)

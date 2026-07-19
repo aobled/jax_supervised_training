@@ -5,6 +5,7 @@ Séparation des utilitaires pour meilleure organisation
 
 import jax
 import jax.numpy as jnp
+import optax
 
 
 # ======================
@@ -135,8 +136,7 @@ def create_eval_step():
         
         rngs = {"dropout": rng}
         logits, _ = state.apply_fn(vars, images, training=False, mutable=["batch_stats"], rngs=rngs)
-        
-        import optax
+
         loss = optax.softmax_cross_entropy_with_integer_labels(logits, labels).mean()
         accuracy = jnp.mean(jnp.argmax(logits, axis=-1) == labels)
         return loss, accuracy
@@ -154,8 +154,6 @@ def create_train_step():
     @jax.jit
     def train_step(params, batch_stats, apply_fn, images, labels, rng):
         """Étape d'entraînement"""
-        import optax
-        
         def loss_fn(params):
             vars = {'params': params, 'batch_stats': batch_stats}
             logits, new_batch_stats = apply_fn(

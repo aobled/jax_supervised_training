@@ -16,7 +16,10 @@ import jax.numpy as jnp
 from tqdm import tqdm
 
 from dataset_configs import get_dataset_config
-from inference_utils import build_single_pass_predict_fn, _rescale_boxes
+from inference_utils import (
+    build_single_pass_predict_fn, _rescale_boxes,
+    load_detection_model, load_jax_model, decode_segmentation_and_detect, predict_crop,
+)
 
 # =================================================================================================
 # CONFIGURATION
@@ -25,22 +28,33 @@ from inference_utils import build_single_pass_predict_fn, _rescale_boxes
 DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
 CHECKPOINT_PATH = "best_model.pkl"      # Chemin vers le modèle de CLASSIFICATION
 INPUT_DIR = "/home/aobled/Downloads/tmp_multi"  # Dossier d'entrée (images à traiter)
-CONFIDENCE_THRESHOLD = 0.6            # Seuil de confiance pour valider une CLASSIFICATION bet 0.96
+CONFIDENCE_THRESHOLD = 0.6            # Seuil de confiance pour valider une CLASSIFICATION (0.0-1.0)
 
-# 2. Configuration du modèle de détection (Story 8.6 : JAX_DETECTOR remplace l'ancien
-# best_model_detection.pkl/AircraftDetectorUNet - celui-ci reste disponible et
-# fonctionnel pour l'ancien pipeline FIGHTERJET_DETECTION, AD-20, non touché ici).
-DETECTOR_CHECKPOINT_PATH = "best_model_jax_detector.pkl"
+# 2. Backend de détection - rétrocompatibilité (2026-07-19, retour utilisateur : JAX_DETECTOR
+# se comporte moins bien que l'ancien pipeline en pratique sur ce script). Deux choix :
+#   "JAX_DETECTOR"         -> pipeline Single-Pass (CenterNet, Story 8.6), best_model_jax_detector.pkl
+#   "FIGHTERJET_DETECTION" -> ancien pipeline (UNet+segmentation, AD-20, jamais modifié) -
+#                             ratifié pour CE script par decode_segmentation_and_detect/
+#                             predict_crop (voir leurs docstrings dans inference_utils.py,
+#                             qui citent explicitement ce fichier comme consommateur).
+DETECTOR_BACKEND = "FIGHTERJET_DETECTION"  # "JAX_DETECTOR" ou "FIGHTERJET_DETECTION"
 
-# Repère canonique attendu par build_single_pass_predict_fn (AD-12) - les images
-# d'entrée de ce script sont de résolution arbitraire, jamais garanties 1920x1080.
+# Checkpoint du détecteur - dépend du backend choisi ci-dessus.
+DETECTOR_CHECKPOINT_PATH = (
+    "best_model_jax_detector.pkl" if DETECTOR_BACKEND == "JAX_DETECTOR" else "best_model_detection.pkl"
+)
+
+# Repère canonique attendu par build_single_pass_predict_fn (AD-12) - uniquement utilisé
+# par le backend JAX_DETECTOR ; les images d'entrée de ce script sont de résolution
+# arbitraire, jamais garanties 1920x1080.
 CANONICAL_WIDTH, CANONICAL_HEIGHT = 1920, 1080
 
-# DETECTION_CONF_THRESHOLD/BOX_AERA_MIN/NMS_THRESHOLD (ancien chemin) n'ont plus
-# d'équivalent direct (Task 9) : le nouveau chemin dérive son propre seuil depuis la
-# config JAX_DETECTOR (detection_score_threshold, Story 8.3) et n'a plus de NMS
-# explicite (AD-9, la tête par point central n'en a pas besoin) - changement de
-# comportement réel, documenté, pas une continuité silencieuse.
+# Seuils propres à l'ancien pipeline (FIGHTERJET_DETECTION) - mêmes valeurs par défaut que
+# tools/audit_dataset_detection.py (AD-20, consommateur de référence). Sans équivalent
+# direct côté JAX_DETECTOR, qui dérive son propre seuil depuis detection_score_threshold
+# (Story 8.3) et n'a pas de NMS explicite (AD-9, la tête par point central n'en a pas besoin).
+DETECTION_CONF_THRESHOLD = 0.3
+BOX_AERA_MIN = 225
 
 DEFAULT_CLASSE = "unknown"
 
@@ -61,16 +75,82 @@ except Exception as e:
 # =================================================================================================
 
 if __name__ == "__main__":
-    # 1. Chargement des modèles (JAX Single-Pass, Story 8.6 - un seul callable, une
-    # seule fois, hors de la boucle de traitement)
-    print("\n🏗️  Initialisation...")
+    # 1. Chargement des modèles - deux chemins possibles selon DETECTOR_BACKEND. Dans les
+    # deux cas on construit un unique callable detect_and_classify(img_bgr) -> liste de
+    # detections uniformes {box, detection_score, predicted_class, confidence}, pour garder
+    # la boucle de traitement ci-dessous identique quel que soit le backend choisi.
+    print(f"\n🏗️  Initialisation (backend détection: {DETECTOR_BACKEND})...")
 
     try:
-        predict_fn = build_single_pass_predict_fn(
-            detector_checkpoint_path=DETECTOR_CHECKPOINT_PATH,
-            classifier_checkpoint_path=CHECKPOINT_PATH,
-        )
-        print("✅ Modèles DÉTECTION+CLASSIFICATION (Single-Pass) chargés.")
+        if DETECTOR_BACKEND == "JAX_DETECTOR":
+            predict_fn = build_single_pass_predict_fn(
+                detector_checkpoint_path=DETECTOR_CHECKPOINT_PATH,
+                classifier_checkpoint_path=CHECKPOINT_PATH,
+            )
+            print("✅ Modèles DÉTECTION+CLASSIFICATION (Single-Pass) chargés.")
+
+            def detect_and_classify(img_bgr):
+                h, w = img_bgr.shape[:2]
+                img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+                img_canonical = cv2.resize(img_gray, (CANONICAL_WIDTH, CANONICAL_HEIGHT))
+                img_canonical = img_canonical.astype(np.float32)[..., None]
+
+                result = predict_fn(jnp.asarray(img_canonical))
+
+                boxes_native = _rescale_boxes(
+                    result["boxes"], detector_size=(CANONICAL_WIDTH, CANONICAL_HEIGHT), original_size=(w, h)
+                )
+                boxes_native = np.asarray(boxes_native)
+                valid_mask = np.asarray(result["valid_mask"])
+                classes = np.asarray(result["classes"])
+                class_scores = np.asarray(result["class_scores"])
+                detection_scores = np.asarray(result["detection_scores"])
+
+                detections = []
+                for i in np.where(valid_mask)[0]:  # valid_mask seule autorité (AD-15/AC3 8.6)
+                    x1, y1, x2, y2 = boxes_native[i]
+                    detections.append({
+                        "box": (float(x1), float(y1), float(x2), float(y2)),
+                        "detection_score": float(detection_scores[i]),
+                        "predicted_class": CLASS_NAMES[int(classes[i])],
+                        "confidence": float(class_scores[i]),
+                    })
+                return detections
+
+        elif DETECTOR_BACKEND == "FIGHTERJET_DETECTION":
+            det_model, det_vars, det_config = load_detection_model(DETECTOR_CHECKPOINT_PATH)
+            clf_model, clf_vars, clf_mean, clf_std = load_jax_model(CHECKPOINT_PATH, config)
+            print("✅ Modèles DÉTECTION (UNet) + CLASSIFICATION chargés (ancien pipeline, AD-20).")
+
+            def detect_and_classify(img_bgr):
+                # decode_segmentation_and_detect retourne deja les boites en pleine
+                # resolution source (pas de rescale separe necessaire, contrairement au
+                # backend JAX_DETECTOR).
+                raw_detections = decode_segmentation_and_detect(
+                    img_bgr, det_model, det_vars, det_config,
+                    conf_threshold=DETECTION_CONF_THRESHOLD, box_aera_min=BOX_AERA_MIN,
+                )
+                detections = []
+                for x1, y1, x2, y2, score in raw_detections:
+                    crop_img = img_bgr[int(y1):int(y2), int(x1):int(x2)]
+                    if crop_img.size == 0:
+                        continue
+                    predicted_class, confidence = predict_crop(
+                        crop_img, clf_model, clf_vars, clf_mean, clf_std, config
+                    )
+                    detections.append({
+                        "box": (float(x1), float(y1), float(x2), float(y2)),
+                        "detection_score": float(score),
+                        "predicted_class": predicted_class,
+                        "confidence": float(confidence),
+                    })
+                return detections
+
+        else:
+            raise ValueError(
+                f"DETECTOR_BACKEND inconnu: {DETECTOR_BACKEND!r} "
+                f"(attendu 'JAX_DETECTOR' ou 'FIGHTERJET_DETECTION')"
+            )
     except Exception as e:
         print(f"❌ Erreur chargement des modèles: {e}")
         import traceback
@@ -83,7 +163,7 @@ if __name__ == "__main__":
     if not os.path.exists(INPUT_DIR):
          print(f"❌ Le dossier {INPUT_DIR} n'existe pas.")
          sys.exit(1)
-         
+
     for root, _, files in os.walk(INPUT_DIR):
         for file in files:
             if file.lower().endswith((".jpg", ".png", ".jpeg", ".bmp")):
@@ -106,42 +186,18 @@ if __name__ == "__main__":
             continue
         h, w = img.shape[:2]
 
-        # --- Normalisation d'entrée vers le repère canonique (AD-12) ---
-        # Résolution source arbitraire (dossier hétérogène) -> 1920x1080 grayscale,
-        # normalisation d'E/S en Python explicitement autorisée par AD-12 (hors du
-        # périmètre zéro-Python de la logique d'inférence elle-même). Pixels bruts
-        # [0,255], jamais de /255.0 ici - normalisation interne à predict_fn.
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img_canonical = cv2.resize(img_gray, (CANONICAL_WIDTH, CANONICAL_HEIGHT))
-        img_canonical = img_canonical.astype(np.float32)[..., None]
-
-        # --- SINGLE-PASS (détection + classification unifiées, Story 8.6) ---
-        result = predict_fn(jnp.asarray(img_canonical))
-
-        # --- RESCALE vers la résolution propre de l'image source (Task 5) ---
-        # result["boxes"] est dans le repère canonique 1920x1080, pas (w,h) source -
-        # second appel à _rescale_boxes, différent de son usage interne à predict_fn.
-        boxes_native = _rescale_boxes(
-            result["boxes"], detector_size=(CANONICAL_WIDTH, CANONICAL_HEIGHT), original_size=(w, h)
-        )
-        boxes_native = np.asarray(boxes_native)
-        valid_mask = np.asarray(result["valid_mask"])
-        classes = np.asarray(result["classes"])
-        class_scores = np.asarray(result["class_scores"])
-        detection_scores = np.asarray(result["detection_scores"])
+        # --- DÉTECTION + CLASSIFICATION (backend choisi via DETECTOR_BACKEND) ---
+        detections = detect_and_classify(img)
 
         json_files_created = []
         detected_classes = set()
         planes_in_image = 0
 
-        for i in np.where(valid_mask)[0]:  # valid_mask seule autorité (AD-15/AC3 8.6)
-            x1, y1, x2, y2 = boxes_native[i]
-            score = float(detection_scores[i])
-            # Note: Le modèle de détection ne prédit que "avion" (classe unique implicite)
-
-            # --- CLASSIFICATION (déjà calculée par predict_fn) ---
-            predicted_class = CLASS_NAMES[int(classes[i])]  # indice -> nom (Task 7)
-            confidence = float(class_scores[i])
+        for det in detections:
+            x1, y1, x2, y2 = det["box"]
+            score = det["detection_score"]
+            predicted_class = det["predicted_class"]
+            confidence = det["confidence"]
 
             # Filtrage par confiance
             if confidence < CONFIDENCE_THRESHOLD:
@@ -150,7 +206,7 @@ if __name__ == "__main__":
             detected_classes.add(predicted_class)
             # ------------------------------
 
-            # Préparer JSON (boîtes déjà rescalées vers la résolution source, Task 5)
+            # Préparer JSON (boîtes déjà en résolution source)
             bbox_float = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
 
             data = {
@@ -180,7 +236,7 @@ if __name__ == "__main__":
             json_files_created.append(out_path)
             planes_in_image += 1
             planes_detected += 1
-        
+
         # Organisation des fichiers (Déplacement)
         if planes_in_image > 0:
             # Déterminer le dossier de destination
@@ -190,23 +246,23 @@ if __name__ == "__main__":
             else:
                 # Plusieurs classes détectées -> Dossier "multi"
                 folder_name = "multi"
-            
+
             dest_dir = os.path.join(INPUT_DIR, folder_name)
             os.makedirs(dest_dir, exist_ok=True)
-            
+
             # Déplacer l'image
             try:
                 shutil.move(img_path, os.path.join(dest_dir, file_name))
             except shutil.Error:
                 pass # Évite de planter si l'image existe déjà (overwrite silencieux ou skip)
-            
+
             # Déplacer les JSONs
             for jf in json_files_created:
                 try:
                     shutil.move(jf, os.path.join(dest_dir, os.path.basename(jf)))
                 except shutil.Error:
                     pass
-                    
+
         processed_count += 1
 
     print(f"\n✅ Terminé !")

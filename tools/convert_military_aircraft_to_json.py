@@ -153,10 +153,7 @@ def process_military_aircraft_dataset():
                 
                 # Chercher le fichier d'annotation correspondant (.txt)
                 annotation_file = os.path.join(labels_dir, f"{base_name}.txt")
-                
-                print("TRAITEMENT = ", image_path, "annotation=", annotation_file)
-                print("EXISTS = ", os.path.exists(annotation_file))
-                
+
                 if os.path.exists(annotation_file):
                     # Obtenir les dimensions de l'image
                     img_width, img_height = get_image_dimensions(image_path)

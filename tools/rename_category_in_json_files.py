@@ -17,12 +17,13 @@ def rename_category_in_json_files(directory, origin, target):
                 if "annotation" in data and data["annotation"].get("category_name") == origin:
                     data["annotation"]["category_name"] = target
                     with open(filepath, 'w') as f:
-                        json.dump(data, f, indent=2)
+                        json.dump(data, f, indent=4, ensure_ascii=False)
                     print(f"Mis à jour : {filepath} ({origin} → {target})")
 
-# Exemple d'utilisation
-directory = "/home/aobled/Downloads/tmp_a4/unknown"
-origin = "unknown"
-target = "a4"
+if __name__ == "__main__":
+    # Exemple d'utilisation
+    directory = "/home/aobled/Downloads/tmp_a4/unknown"
+    origin = "unknown"
+    target = "a4"
 
-rename_category_in_json_files(directory, origin, target)
+    rename_category_in_json_files(directory, origin, target)

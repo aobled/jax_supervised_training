@@ -32,7 +32,22 @@ def validate_config(config_name, config):
     for key in required:
         if key not in config:
             errors.append(f"Paramètre requis manquant: {key}")
-    
+
+    # Vérifier que les blocs backend tpu/gpu sont présents et numériquement valides
+    # (main.py/trainer.py/print_config y accèdent tous par config[backend] sans garde -
+    # mieux vaut échouer ici, avec un message clair, que par un KeyError profond)
+    for backend_key in ("tpu", "gpu"):
+        if backend_key not in config:
+            errors.append(f"Bloc backend manquant: {backend_key}")
+            continue
+        backend_cfg = config[backend_key]
+        micro_batch_size = backend_cfg.get("micro_batch_size")
+        if not isinstance(micro_batch_size, int) or micro_batch_size <= 0:
+            errors.append(f"{backend_key}.micro_batch_size doit être un entier positif (reçu {micro_batch_size!r})")
+        accum_steps = backend_cfg.get("accum_steps")
+        if not isinstance(accum_steps, int) or accum_steps <= 0:
+            errors.append(f"{backend_key}.accum_steps doit être un entier positif (reçu {accum_steps!r})")
+
     if errors:
         print(f"❌ Erreurs de configuration pour {config_name}:")
         for error in errors:
@@ -371,14 +386,14 @@ DATASET_CONFIGS = {
         "num_classes": 1,  # Detection mono-classe (Story 7.1)
         "class_names": ['aircraft'],
         # Le nom de base doit correspondre exactement au préfixe codé en dur dans
-        # dataset_builder/fighterjet_detection_dataset_tools_v2.py (Story 7.4) pour que le glob de
+        # dataset_builder/jax_detector_dataset_tools.py (Story 7.4) pour que le glob de
         # CenterNetDetectionDataset (Story 7.5) trouve les chunks.
         "output_prefix": f"{DATA_ROOT}/chunks/jax_detector/jax_detector_targets",
         # Pic memoire pendant la generation ~ chunk_size x 784 Ko x 2 (liste Python + tableau
-        # numpy empile simultanement, dataset_builder/fighterjet_detection_dataset_tools_v2.py::_save_chunk_v2) -
+        # numpy empile simultanement, dataset_builder/jax_detector_dataset_tools.py::_save_chunk_v2) -
         # 3000 = ~4.5 Go, valide sur la machine locale (30 Go RAM + 2 Go swap). Recalculer avant
         # d'augmenter sur un environnement avec plus de RAM (ex. Colab).
-        "chunk_size": 13000,
+        "chunk_size": 12800,
         "image_size": (224, 224),
         "grayscale": True,
         "max_boxes": 20,
@@ -392,6 +407,14 @@ DATASET_CONFIGS = {
         # deja verifie zero faux positif sur les images annotees jusqu'a 0.1 ; 0.2 reste une
         # marge prudente, facilement reversible si besoin.
         "detection_score_threshold": 0.2,
+
+        # Augmentation "zoom plein-cadre" a la GENERATION des chunks (dataset_builder/
+        # jax_detector_dataset_tools.py::process_detection_dataset_v2, distincte de
+        # augmentation_params ci-dessous qui agit au chargement/entrainement sur les
+        # tenseurs deja encodes, CenterNetDetectionDataset, Story 7.5). 0.0 = defaut,
+        # aucun changement de sortie tant que non explicitement releve (diagnostic
+        # tests/diagnose_single_full_size_aircraft.py, 2026-07-19).
+        "zoom_augment_probability": 0.0,
 
         # === Augmentation de Données ===
         # Copiée telle quelle de FIGHTERJET_DETECTION - point de départ raisonnable, pas
@@ -450,8 +473,17 @@ DATASET_CONFIGS = {
             # davantage un apprentissage deja lent sur un signal heatmap eparse.
             "dropout_rate": 0.1,
             "warmup_steps": 400,
-            # 761 steps/epoch (detection/train seul, mesure reellement, v4) x 15 epochs.
-            "decay_steps": 11415,
+            # 992 steps/epoch (mesure reellement, archive/training_jax_detector_rv7.txt,
+            # 2026-07-19) x 15 epochs. Recalcule suite a zoom_augment_probability=0.3
+            # (2026-07-19) : l'ancienne valeur (11415 = 761 steps/epoch x 15, mesuree AVANT
+            # cette augmentation, run v4) etait restee figee apres l'activation de
+            # l'augmentation, qui ajoute ~30% d'echantillons/epoch (992/761 = 1.304, coherent
+            # avec le +30% attendu) - le schedule cosine atteignait donc son plancher
+            # (LR~1e-6) vers l'epoch 12/15 au lieu de l'epoch 15, gelant l'apprentissage sur
+            # les ~3 dernieres epochs du run rv7 (plateau observe dans le log a partir de
+            # l'epoch 10). A recalculer de nouveau si le volume de donnees ou le nombre
+            # d'epochs changent encore.
+            "decay_steps": 14880,
         },
 
         # === Hyperparamètres GPU (2026-07-18, cible T4 Colab) ===
@@ -577,4 +609,4 @@ if __name__ == "__main__":
             print(f"   ❌ Erreur: {e}")
     
     print("\n🎯 Affichage d'une config complète:")
-    print_config("FIGHTERJET_CLASSES")
+    print_config("FIGHTERJET_CLASSIFICATION")
