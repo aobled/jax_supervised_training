@@ -231,7 +231,88 @@ def reporting_small_boxes(df, min_size=16):
     print("Boxes avec image_width ou image_height < 16 :")
     print(small_images_boxes[['image_filename', 'box_l', 'box_h', 'box_class', 'directory']])
     small_images_boxes.to_csv("boxes_small_images.csv", index=False)
- 
+
+
+# Distribution de la taille des boxes en % de la surface de l'image (pas en pixels,
+# les images ont des résolutions différentes) - vérifie l'hypothèse "champ réceptif
+# CenterNet" (deferred-work.md, 2026-07-19) : les avions plein-cadre (ratio élevé) sont-ils
+# réellement rares dans detection/train, ou box_count.csv nous trompait-il (il ne mesure
+# que le NOMBRE de boîtes, pas leur taille) ?
+def reporting_global_boxes_size(df):
+    image_area = df['image_width'] * df['image_height']
+
+    # Boîtes sans dimensions d'image valides (metadata manquante, load_dataset_to_dataframe
+    # défaut à 0) - écartées du calcul de ratio, ne peuvent pas être divisées par zéro.
+    invalid = image_area <= 0
+    n_invalid = int(invalid.sum())
+    if n_invalid:
+        print(f"⚠️  {n_invalid} boîte(s) ignorée(s) (image_width/image_height manquant ou nul)")
+
+    valid_df = df[~invalid].copy()
+    valid_df['box_area_ratio_pct'] = (
+        (valid_df['box_l'] * valid_df['box_h']) / image_area[~invalid] * 100
+    )
+
+    # Bins pensés pour distinguer un avion "normal" (petit à moyen dans le cadre) d'un
+    # avion "plein-cadre" (photo zoomée, style dataset de classification) - c'est ce
+    # deuxième cas, pas le simple "1 seule boîte", que l'hypothèse champ réceptif concerne.
+    bins = [0, 1, 5, 15, 30, 50, 70, 100, float('inf')]
+    labels = ['0-1%', '1-5%', '5-15%', '15-30%', '30-50%', '50-70%', '70-100%', '>100%']
+    valid_df['size_bucket'] = pd.cut(valid_df['box_area_ratio_pct'], bins=bins, labels=labels, right=True)
+
+    pivot = valid_df.groupby(['size_bucket', 'split'], observed=False).size().unstack(fill_value=0)
+    for col in ('train', 'val'):
+        if col not in pivot.columns:
+            pivot[col] = 0
+    pivot = pivot[['train', 'val']]
+    pivot['Total'] = pivot['train'] + pivot['val']
+    pivot['Ratio_%'] = (pivot['Total'] / pivot['Total'].sum() * 100).round(2)
+    pivot = pivot.reindex(labels)  # ordre croissant de taille, pas alphabétique
+
+    total_row = pd.DataFrame({
+        'train': [pivot['train'].sum()],
+        'val': [pivot['val'].sum()],
+        'Total': [pivot['Total'].sum()],
+        'Ratio_%': [100.0],
+    }, index=['TOTAL'])
+    result = pd.concat([pivot, total_row])
+
+    print("\nDistribution de la taille des boîtes (% de la surface de l'image) :")
+    print(result)
+    print(f"\nStatistiques (toutes boîtes valides, {len(valid_df)}) :")
+    print(valid_df['box_area_ratio_pct'].describe())
+
+    result.to_csv("boxes_size_distribution.csv")
+    return result
+
+
+# Liste les boxes dont le ratio d'aire (% de la surface de l'image) tombe dans
+# [min_size, max_size) - bande étroite plutôt qu'un simple seuil, pour garder un CSV
+# exploitable manuellement (contrôle de sanité sur reporting_global_boxes_size, 2026-07-19 :
+# vérifier quelques cas concrets avant de faire confiance à la distribution surprenante).
+def reporting_boxes_between_size_ratio(df, min_size=15, max_size=25):
+    image_area = df['image_width'] * df['image_height']
+
+    invalid = image_area <= 0
+    n_invalid = int(invalid.sum())
+    if n_invalid:
+        print(f"⚠️  {n_invalid} boîte(s) ignorée(s) (image_width/image_height manquant ou nul)")
+
+    valid_df = df[~invalid].copy()
+    valid_df['box_area_ratio_pct'] = (
+        (valid_df['box_l'] * valid_df['box_h']) / image_area[~invalid] * 100
+    )
+
+    in_range = valid_df[
+        (valid_df['box_area_ratio_pct'] >= min_size) & (valid_df['box_area_ratio_pct'] < max_size)
+    ]
+
+    COLUMNS = ['image_filename', 'box_class', 'directory', 'split']
+    print(f"Boxes avec ratio d'aire dans [{min_size}%, {max_size}%[ : {len(in_range)}")
+    print(in_range[COLUMNS])
+    in_range.to_csv("boxes_between_size_ratio.csv", columns=COLUMNS, index=False)
+    return in_range
+
 
 #------------------------------
 #--- Configuration download ---
@@ -241,7 +322,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset_configs import get_dataset_config
 
 if __name__ == "__main__":
-    DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/detection'
+    DATASET_PATH = '/home/aobled/Downloads/Aircraft_DATASET/classification'
     DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
     try:
         config = get_dataset_config(DATASET_NAME)
@@ -255,8 +336,8 @@ if __name__ == "__main__":
     # Charger les données
     df = load_dataset_to_dataframe(DATASET_PATH)
 
-    #reporting_groupby_class_and_split(df)
-    reporting_groupby_box_count(df)
+    reporting_groupby_class_and_split(df)
+    #reporting_groupby_box_count(df)
     #reporting_boxes_on_wrong_directory(df)
 
     #reporting_single_boxes_target_class_size(df, class_list=['f8', 'unknown'], target_size=64)
@@ -267,3 +348,6 @@ if __name__ == "__main__":
     #reporting_single_classe_images(df, target_class='f8', min_size=16)
     #reporting_all_images_in_class_list(df, class_list=['unknown', 'alpahjet'])
     #reporting_small_boxes(df, min_size=16)
+    
+    #reporting_global_boxes_size(df)
+    #reporting_boxes_between_size_ratio(df, min_size=0, max_size=1)

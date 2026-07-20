@@ -5,16 +5,33 @@ flowchart TB
         CLF --> PKL["classifier.pkl"]
     end
 
+    subgraph ARCH["Architecture interne détecteur — AircraftDetectorCenterNet<br/>PROPOSITION 2026-07-19 : bottleneck dilaté (voir deferred-work.md, hypothèse champ réceptif)"]
+        A0["Input 224×224×1"]
+        A0 --> B1A["Conv 3×3 ×2 (32ch)<br/>224×224"]
+        B1A --> B1P["MaxPool 2×2<br/>→ 112×112"]
+        B1P --> B2A["Conv 3×3 ×2 (64ch)<br/>112×112"]
+        B2A --> B2P["MaxPool 2×2<br/>→ 56×56"]
+        B2P --> B3A["Conv 3×3 ×2 (128ch)<br/>56×56"]
+        B3A --> B3P["MaxPool 2×2<br/>→ 28×28"]
+        B3P --> BOT["🔴 Bottleneck DILATÉ (256ch), 28×28<br/>Conv 3×3 dilation=2 puis dilation=4<br/>RF théorique ≈132px/224 (~59%)<br/>vs ≈68px/224 (~30%) architecture actuelle<br/>(non-dilatée, RF insuffisant pour<br/>les boîtes plein-cadre, ~47% du dataset)"]
+        BOT --> U1["Up1 : resize→56×56 + concat skip B3A<br/>Conv 3×3 ×2 (128ch)"]
+        U1 --> U2["Up2 : resize→112×112 + concat skip B2A<br/>Conv 3×3 ×2 (64ch)"]
+        U2 --> U3["Up3 : resize→224×224 + concat skip B1A<br/>Conv 3×3 ×2 (32ch)"]
+        U3 --> HEADS["Têtes parallèles, 224×224 :<br/>Heatmap 224×224×1 (sigmoid)<br/>Size 224×224×2 (linéaire, échelle log)"]
+    end
+
     subgraph DETTRAIN["Entraînement détection — séparé, à 224x224 uniquement, PAS de dataset full-HD"]
-        DSD["Chunks .npz 224x224<br/>(fighterjet_detection_dataset_tools_v2.py,<br/>cibles heatmap+taille depuis raw_boxes)"]
-        DSD --> ENCTRAIN["Encoder-decoder détection<br/>(entraîné à 224x224, comme aujourd'hui)"]
+        DSD["Chunks .npz 224x224<br/>(dataset_builder/jax_detector_dataset_tools.py,<br/>cibles heatmap+taille depuis raw_boxes)"]
+        DSD --> ENCTRAIN["Encoder-decoder détection<br/>(voir ARCH — entraîné à 224x224)"]
         ENCTRAIN --> DETPKL["detector.pkl"]
     end
+
+    ARCH -.architecture.-> ENCTRAIN
 
     subgraph DETECT["JAX Single-Pass — inférence (graphe unifié)"]
         IMG["Image 1920x1080 grayscale<br/>résolution canonique<br/>(normalisation python en amont si besoin)"]
         IMG --> RESIZE["Resize déterministe fixe<br/>1920x1080 → 224x224<br/>(méthode à valider vs. resize<br/>d'entraînement PIL/LANCZOS actuel)"]
-        RESIZE --> ENC["Encoder-decoder détection<br/>(poids entraînés, gelés à l'inférence)"]
+        RESIZE --> ENC["Encoder-decoder détection<br/>(voir ARCH — poids entraînés, gelés à l'inférence)"]
         DETPKL -.poids entraînés.-> ENC
         ENC --> HM["Heatmap centres + régression tailles<br/>(repère 224x224)"]
         HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
@@ -29,3 +46,5 @@ flowchart TB
         RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
     end
+
+    ARCH -.architecture.-> ENC

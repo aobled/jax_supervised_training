@@ -1,0 +1,162 @@
+/usr/local/lib/python3.12/dist-packages/jax/_src/cloud_tpu_init.py:86: UserWarning: Transparent hugepages are not enabled. TPU runtime startup and shutdown time should be significantly improved on TPU v5e and newer. If not already set, you may need to enable transparent hugepages in your VM image (sudo sh -c "echo always > /sys/kernel/mm/transparent_hugepage/enabled")
+  warnings.warn(
+🚀 TPU détecté - Optimisations activées
+📊 TPU: Utilisation de float16
+Backend JAX: tpu
+Devices: [TpuDevice(id=0, process_index=0, coords=(0,0,0), core_on_chip=0)]
+Using device: TPU_0(process=0,(0,0,0,0))
+🎯 Dataset spécifié: JAX_DETECTOR
+
+📊 Chargement de la configuration: JAX_DETECTOR
+
+📊 CONFIGURATION: JAX_DETECTOR
+============================================================
+Classes: 1
+Noms: ['aircraft']
+Image size: (224, 224)
+Modèle: aircraft_detector_centernet
+Epochs: 15
+Patience: 8
+
+TPU: batch=256×1, lr=0.0004, wd=5e-05
+GPU: batch=64×1, lr=0.0002, wd=5e-05
+============================================================
+
+📁 GESTION DES DONNÉES
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1784571577.994887    9363 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1784571585.358631    9363 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1784571590.177333    9363 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+🔄 Initialisation du pipeline de données pour la tâche : DETECTION_CENTERNET
+📦 CenterNet Detection Dataset: 10 train chunks, 3 val chunks [Grayscale (1 canal)]
+
+🔍 Vérification des datasets...
+📊 Train: shape=(256, 224, 224, 1), targets={'heatmap': (256, 224, 224, 1), 'size': (256, 224, 224, 2)}
+📊 Val: shape=(256, 224, 224, 1), targets={'heatmap': (256, 224, 224, 1), 'size': (256, 224, 224, 2)}
+
+🏗️  CRÉATION DU MODÈLE
+============================================================
+Modèle: aircraft_detector_centernet
+Classes: 1
+Dropout: 0.1
+🎯 Application de la logique d'entraînement : DETECTION CENTERNET
+
+🎯 CRÉATION DU TRAINER
+============================================================
+
+🚀 LANCEMENT DE L'ENTRAÎNEMENT
+============================================================
+💾 RAM avant entraînement: 14.8%
+📊 TAILLE DU MODÈLE:
+   Paramètres totaux: 1,927,907
+   Taille: 7.4 MB
+📂 Checkpoint chargé: best_model_training_state_jax_detector.pkl
+🏁 Reprise d'entraînement à l'epoch 0
+   Meilleure métrique (Acc/Loss): 0.1171
+   Patience utilisée: 0
+
+Epoch 1/15 - training...
+💾 RAM: 19.9% (8.8GB/47.0GB)
+Training: 496it [14:48,  1.79s/it]
+Train | Loss=3.1051 | HeatmapActivation=0.0737 | Time=889.1s
+Val   | Loss=2.9186 | HeatmapActivation=0.0980 | Time=158.5s
+
+Epoch 2/15 - training...
+Training: 496it [13:42,  1.66s/it]
+Train | Loss=2.8255 | HeatmapActivation=0.0906 | Time=822.8s
+Val   | Loss=2.7087 | HeatmapActivation=0.0925 | Time=103.4s
+
+Epoch 3/15 - training...
+Training: 496it [11:42,  1.42s/it]
+Train | Loss=2.6790 | HeatmapActivation=0.1025 | Time=702.2s
+Val   | Loss=2.5724 | HeatmapActivation=0.1145 | Time=96.9s
+
+Epoch 4/15 - training...
+Training: 496it [11:38,  1.41s/it]
+Train | Loss=2.5688 | HeatmapActivation=0.1124 | Time=698.2s
+Val   | Loss=2.4907 | HeatmapActivation=0.1136 | Time=100.0s
+
+Epoch 5/15 - training...
+Training: 496it [11:47,  1.43s/it]
+Train | Loss=2.4886 | HeatmapActivation=0.1203 | Time=708.1s
+Val   | Loss=2.3762 | HeatmapActivation=0.1290 | Time=105.6s
+[✓] New best model saved (HeatmapActivation=0.1290)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 6/15 - training...
+💾 RAM: 23.6% (10.5GB/47.0GB)
+Training: 496it [11:49,  1.43s/it]
+Train | Loss=2.4140 | HeatmapActivation=0.1284 | Time=709.5s
+Val   | Loss=2.3396 | HeatmapActivation=0.1316 | Time=105.7s
+[✓] New best model saved (HeatmapActivation=0.1316)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 7/15 - training...
+Training: 496it [11:38,  1.41s/it]
+Train | Loss=2.3611 | HeatmapActivation=0.1342 | Time=698.8s
+Val   | Loss=2.3101 | HeatmapActivation=0.1382 | Time=95.7s
+[✓] New best model saved (HeatmapActivation=0.1382)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 8/15 - training...
+Training: 496it [11:44,  1.42s/it]
+Train | Loss=2.3228 | HeatmapActivation=0.1386 | Time=704.6s
+Val   | Loss=2.2545 | HeatmapActivation=0.1481 | Time=106.5s
+[✓] New best model saved (HeatmapActivation=0.1481)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 9/15 - training...
+Training: 496it [11:48,  1.43s/it]
+Train | Loss=2.3004 | HeatmapActivation=0.1412 | Time=708.4s
+Val   | Loss=2.2470 | HeatmapActivation=0.1500 | Time=103.2s
+[✓] New best model saved (HeatmapActivation=0.1500)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 10/15 - training...
+Training: 496it [11:46,  1.42s/it]
+Train | Loss=2.2965 | HeatmapActivation=0.1415 | Time=706.7s
+Val   | Loss=2.2460 | HeatmapActivation=0.1505 | Time=90.7s
+[✓] New best model saved (HeatmapActivation=0.1505)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 11/15 - training...
+💾 RAM: 24.1% (10.8GB/47.0GB)
+Training: 496it [11:52,  1.44s/it]
+Train | Loss=2.2931 | HeatmapActivation=0.1420 | Time=712.6s
+Val   | Loss=2.2448 | HeatmapActivation=0.1511 | Time=107.1s
+[✓] New best model saved (HeatmapActivation=0.1511)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+Epoch 12/15 - training...
+Training: 496it [11:43,  1.42s/it]
+Train | Loss=2.2925 | HeatmapActivation=0.1420 | Time=703.4s
+Val   | Loss=2.2451 | HeatmapActivation=0.1507 | Time=107.3s
+
+Epoch 13/15 - training...
+Training: 496it [11:26,  1.38s/it]
+Train | Loss=2.2938 | HeatmapActivation=0.1417 | Time=686.2s
+Val   | Loss=2.2449 | HeatmapActivation=0.1509 | Time=97.3s
+
+Epoch 14/15 - training...
+Training: 496it [11:18,  1.37s/it]
+Train | Loss=2.2924 | HeatmapActivation=0.1420 | Time=678.6s
+Val   | Loss=2.2449 | HeatmapActivation=0.1507 | Time=103.9s
+
+Epoch 15/15 - training...
+Training: 496it [11:52,  1.44s/it]
+Train | Loss=2.2954 | HeatmapActivation=0.1418 | Time=712.3s
+Val   | Loss=2.2435 | HeatmapActivation=0.1513 | Time=91.7s
+[✓] New best model saved (HeatmapActivation=0.1513)
+   [💾] Export pur PKL généré: best_model_jax_detector.pkl
+
+🎯 ENTRAÎNEMENT TERMINÉ
+   Meilleur HeatmapActivation validation: 0.1513
+
+📊 GÉNÉRATION DES MÉTRIQUES DÉLÉGUÉE À LA STRATÉGIE
+============================================================
+✅ Visualisation CenterNet générée (final_detection_centernet_vis.png)
+
+🏁 Programme terminé
+   Meilleur score validation (Accuracy ou Loss): 0.1513

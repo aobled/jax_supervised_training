@@ -5,9 +5,11 @@ Architecture orientée objet pour meilleure organisation
 
 import time
 import gc
+import glob
 import math
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from tqdm import tqdm
 from typing import Tuple, Optional
@@ -23,6 +25,33 @@ from checkpoint_manager import CheckpointManager
 from utils import smooth_labels, mixup_batch, tree_add, tree_div, batch_stats_div, count_parameters, get_model_size_mb
 from reporting import TrainingVisualizer
 from loss_functions import compute_grid_loss
+
+
+def _count_real_train_samples(output_prefix):
+    """Compte le nombre reel d'echantillons dans les chunks .npz d'entrainement
+    (glob {output_prefix}_train_chunk*.npz). Utilise la premiere cle du npz (peu
+    importe son nom - 'image'/'images'/'heatmap' - le premier axe est toujours N
+    quel que soit le schema de chunk, classification/detection/detection_centernet/
+    kepler). Retourne None si aucun chunk trouve (config sans donnees reelles sur
+    disque, ex. contexte de test) - l'appelant doit alors se rabattre sur une valeur
+    par defaut, jamais planter ici.
+
+    Ajoute 2026-07-21 suite a 3 incidents reels de decay_steps code en dur devenu
+    stale (CIFAR10 Epic 5 Addendum 3, JAX_DETECTOR rv7 apres activation de
+    zoom_augment_probability, JAX_DETECTOR v8 apres changement de micro_batch_size)
+    - voir deferred-work.md. Remplace le recalcul manuel par une mesure automatique
+    a chaque construction du Trainer.
+    """
+    chunk_files = sorted(glob.glob(f"{output_prefix}_train_chunk*.npz"))
+    if not chunk_files:
+        return None
+    total = 0
+    for path in chunk_files:
+        with np.load(path) as data:
+            if not data.files:
+                continue
+            total += data[data.files[0]].shape[0]
+    return total if total > 0 else None
 
 
 class Trainer:
@@ -126,8 +155,24 @@ class Trainer:
         # epochs/patience (comptes d'EPOCHS, backend-independants, restent top-level).
         # (2026-07-18, migration - voir dataset_configs.py pour la justification complète)
         warmup_steps = self.backend_config.get("warmup_steps", 1200)
-        decay_steps = self.backend_config.get("decay_steps", 6000)
-        
+
+        # decay_steps calcule automatiquement depuis le vrai volume de donnees sur
+        # disque (2026-07-21) plutot que lu tel quel depuis la config - elimine la
+        # classe de bug "steps/epoch mesure une fois a la main, jamais remis a jour
+        # quand le dataset ou micro_batch_size change" (3 incidents reels, voir
+        # deferred-work.md). Repli sur la config si aucun chunk trouve (ex. tests).
+        real_train_samples = _count_real_train_samples(self.config.get("output_prefix", ""))
+        if real_train_samples:
+            real_steps_per_epoch = real_train_samples // self.micro_batch_size
+            decay_steps = real_steps_per_epoch * self.epochs
+            print(
+                f"📐 decay_steps calculé automatiquement : {real_train_samples} échantillons réels, "
+                f"batch={self.micro_batch_size} -> {real_steps_per_epoch} steps/epoch × {self.epochs} epochs = {decay_steps}"
+            )
+        else:
+            decay_steps = self.backend_config.get("decay_steps", 6000)
+            print(f"⚠️  decay_steps automatique indisponible (aucun chunk .npz trouvé), repli sur la config : {decay_steps}")
+
         lr_schedule_type = self.config.get("lr_schedule", "cosine")
         if lr_schedule_type == "cosine":
             self.schedule = optax.warmup_cosine_decay_schedule(

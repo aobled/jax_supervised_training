@@ -472,10 +472,19 @@ class AircraftDetectorCenterNet(nn.Module):
         p3 = nn.max_pool(x3, window_shape=(2, 2), strides=(2, 2))
 
         # --- BOTTLENECK ---
-        b = nn.Conv(256, (3, 3), padding="SAME")(p3)
+        # Convolutions dilatees (2026-07-19, hypothese "champ receptif" - voir
+        # deferred-work.md et jax-single-pass.mmd) : le bottleneck non-dilate (RF
+        # theorique ~68px/224, ~30%) est structurellement trop etroit pour les boites
+        # plein-cadre (~47% du dataset detection/train a une aire >=50% de l'image,
+        # mesure reelle 2026-07-19 via reporting_global_boxes_size). La dilatation
+        # agrandit le RF theorique a ~132px/224 (~59%) sans changer la resolution
+        # spatiale du bottleneck (28x28) ni le nombre de parametres (dilation != taille
+        # de noyau). N'affecte pas AircraftDetectorUNet (AD-20, code non partage malgre
+        # l'architecture jumelle).
+        b = nn.Conv(256, (3, 3), kernel_dilation=(2, 2), padding="SAME")(p3)
         b = nn.BatchNorm(use_running_average=not training)(b)
         b = nn.silu(b)
-        b = nn.Conv(256, (3, 3), padding="SAME")(b)
+        b = nn.Conv(256, (3, 3), kernel_dilation=(4, 4), padding="SAME")(b)
         b = nn.BatchNorm(use_running_average=not training)(b)
         b = nn.silu(b)
         b = nn.Dropout(self.dropout_rate, deterministic=not training)(b)

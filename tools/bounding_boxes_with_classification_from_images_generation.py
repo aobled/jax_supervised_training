@@ -27,7 +27,7 @@ from inference_utils import (
 # 1. Configuration du dataset et du modèle de classification
 DATASET_NAME = "FIGHTERJET_CLASSIFICATION"     # Nom de la config dans dataset_configs.py
 CHECKPOINT_PATH = "best_model.pkl"      # Chemin vers le modèle de CLASSIFICATION
-INPUT_DIR = "/home/aobled/Downloads/tmp_multi"  # Dossier d'entrée (images à traiter)
+INPUT_DIR = "/home/aobled/Downloads/tmp_test"  # Dossier d'entrée (images à traiter)
 CONFIDENCE_THRESHOLD = 0.6            # Seuil de confiance pour valider une CLASSIFICATION (0.0-1.0)
 
 # 2. Backend de détection - rétrocompatibilité (2026-07-19, retour utilisateur : JAX_DETECTOR
@@ -37,7 +37,7 @@ CONFIDENCE_THRESHOLD = 0.6            # Seuil de confiance pour valider une CLAS
 #                             ratifié pour CE script par decode_segmentation_and_detect/
 #                             predict_crop (voir leurs docstrings dans inference_utils.py,
 #                             qui citent explicitement ce fichier comme consommateur).
-DETECTOR_BACKEND = "FIGHTERJET_DETECTION"  # "JAX_DETECTOR" ou "FIGHTERJET_DETECTION"
+DETECTOR_BACKEND = "JAX_DETECTOR"  # "JAX_DETECTOR" ou "FIGHTERJET_DETECTION"
 
 # Checkpoint du détecteur - dépend du backend choisi ci-dessus.
 DETECTOR_CHECKPOINT_PATH = (
