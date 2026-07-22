@@ -52,7 +52,7 @@
 #     existing consumers (non-regression, explicit user requirement).
 
 generated: 2026-07-12
-last_updated: 2026-07-19
+last_updated: 2026-07-22
 project: jax_supervised_training
 project_key: NOKEY
 tracking_system: file-system
@@ -200,8 +200,24 @@ action_items:
   - epic: "7-8"
     action: "Avant de valider une optimisation de performance sur un seul cas de test, tester au moins un cas dense/pire-cas avant de la considerer acquise - le falloff gaussien par-ellipse et l'overlay confirmees seules ont tous deux semble corrects sur un cas simple avant de reveler leur defaut sur un cas dense"
     owner: "Aymeric + Claude"
-    status: open
+    status: done
   - epic: "7-8"
     action: "Router au moins un prochain chantier via les agents specialises (Amelia/Winston) a titre de test reel - item reconduit pour la 3e fois consecutive (Epic 6, ce cycle)"
     owner: "Aymeric"
+    status: done
+  - epic: "quickdev-2026-07-22"
+    action: "Inventorier les ~56 fichiers .py (hors archive/), valider leur utilite un par un avec Aymeric, archiver les scripts de diagnostic ponctuels obsoletes"
+    owner: "Aymeric + Claude"
+    status: open
+  - epic: "quickdev-2026-07-22"
+    action: "Reperer les methodes dupliquees/copier-collees entre programmes avant toute consolidation (ne pas refactoriser a l'aveugle)"
+    owner: "Aymeric + Claude"
+    status: open
+  - epic: "quickdev-2026-07-22"
+    action: "Session avec Winston (architecte) sur l'optimisation/reduction du modele detecteur video (taille, latence) sans perdre le gain plein-cadre valide ce cycle"
+    owner: "Winston + Aymeric"
+    status: open
+  - epic: "quickdev-2026-07-22"
+    action: "Verifier explicitement toute affirmation technique (attribution de cause, estimation chiffree) contre le log/la source avant de l'enoncer, pas seulement apres correction utilisateur - 2 occurrences ce cycle (v8 checkpoint, +15%/+30%)"
+    owner: "Process (Claude)"
     status: open
