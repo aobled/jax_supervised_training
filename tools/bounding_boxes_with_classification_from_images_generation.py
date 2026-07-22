@@ -52,9 +52,18 @@ CANONICAL_WIDTH, CANONICAL_HEIGHT = 1920, 1080
 # Seuils propres à l'ancien pipeline (FIGHTERJET_DETECTION) - mêmes valeurs par défaut que
 # tools/audit_dataset_detection.py (AD-20, consommateur de référence). Sans équivalent
 # direct côté JAX_DETECTOR, qui dérive son propre seuil depuis detection_score_threshold
-# (Story 8.3) et n'a pas de NMS explicite (AD-9, la tête par point central n'en a pas besoin).
+# (Story 8.3). Note (mise à jour 2026-07-22) : JAX_DETECTOR a désormais aussi un NMS
+# JAX-natif (`nms_iou_threshold`, voir ci-dessous) — AD-9 reste vrai pour un objet de
+# taille normale (pic étroit, pas de doublon), mais plus pour un objet plein-cadre
+# (voir deferred-work.md, `_gaussian_radius` produit un plateau large sur les grands
+# objets, source de doublons que le NMS nettoie).
 DETECTION_CONF_THRESHOLD = 0.3
 BOX_AERA_MIN = 225
+
+# Seuil IoU du NMS JAX-natif JAX_DETECTOR (même source que build_single_pass_predict_fn
+# en interne, 2026-07-22) - récupéré ici uniquement pour être passé explicitement,
+# sans dupliquer sa valeur en dur (AD-15).
+NMS_IOU_THRESHOLD = get_dataset_config("JAX_DETECTOR")["nms_iou_threshold"]
 
 DEFAULT_CLASSE = "unknown"
 
@@ -86,6 +95,7 @@ if __name__ == "__main__":
             predict_fn = build_single_pass_predict_fn(
                 detector_checkpoint_path=DETECTOR_CHECKPOINT_PATH,
                 classifier_checkpoint_path=CHECKPOINT_PATH,
+                nms_iou_threshold=NMS_IOU_THRESHOLD,
             )
             print("✅ Modèles DÉTECTION+CLASSIFICATION (Single-Pass) chargés.")
 

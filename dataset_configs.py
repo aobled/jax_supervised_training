@@ -404,9 +404,26 @@ DATASET_CONFIGS = {
         # Abaisse a 0.2 le 2026-07-19 (retour utilisateur : avions petits/lointains sur fond
         # de ville non confirmes malgre un vrai pic de score visible dans le heatmap
         # exploratoire bas-gauche) - le diagnostic threshold_sensitivity (archive/) avait
-        # deja verifie zero faux positif sur les images annotees jusqu'a 0.1 ; 0.2 reste une
-        # marge prudente, facilement reversible si besoin.
-        "detection_score_threshold": 0.2,
+        # deja verifie zero faux positif sur les images annotees jusqu'a 0.1.
+        # Abaisse a 0.1 le 2026-07-22 : audit_dataset_detection_jax.py (v10, dilatation +
+        # contexte global) a montre que le score de confiance BRUT (avant seuil) est
+        # correct geometriquement dans 81% des cas sur les boites plein-cadre (70-100%
+        # de l'image), mais que seulement 9.6% depassaient le seuil de 0.2 - un probleme
+        # de calibration de confiance, pas de capacite geometrique. Puisque 0.1 est deja
+        # verifie sans faux positif (voir ci-dessus), pas de raison de garder la marge a 0.2.
+        "detection_score_threshold": 0.1,
+
+        # Seuil IoU du NMS JAX-natif a l'inference (2026-07-22, voir deferred-work.md,
+        # AD-15 : seuil en config, jamais une constante privee dupliquee - meme discipline
+        # que detection_score_threshold ci-dessus). Un candidat est supprime si son IoU
+        # avec un candidat mieux score depasse ce seuil. Necessaire car le rayon gaussien
+        # de la cible d'entrainement (_gaussian_radius, detection_target_encoding.py,
+        # Story 7.1) grandit avec la taille de la boite : un grand objet produit un
+        # plateau large de score eleve (pas un pic pointu), et plusieurs pics voisins
+        # peuvent depasser detection_score_threshold simultanement pour le meme objet.
+        # Valide sur audit complet (120 102 images, 2026-07-22) : ratio predictions/vraies
+        # boites 1.353->1.119, sans effet de bord notable sur IoU moyen/GOOD.
+        "nms_iou_threshold": 0.5,
 
         # Augmentation "zoom plein-cadre" a la GENERATION des chunks (dataset_builder/
         # jax_detector_dataset_tools.py::process_detection_dataset_v2, distincte de

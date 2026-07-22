@@ -300,6 +300,65 @@ def _rescale_boxes(boxes, detector_size, original_size=(1920, 1080)):
     return jnp.stack([x1, y1, x2, y2], axis=-1)
 
 
+def _non_max_suppression_jax(boxes, scores, iou_threshold=0.5):
+    """
+    NMS JAX-natif (2026-07-22) - complement a _top_k_boxes/build_single_pass_predict_fn,
+    JIT-compilable de bout en bout (jax.lax.fori_loop sur k=boxes.shape[0] iterations
+    fixes, connu a la compilation - aucun branchement dependant des donnees, aucune
+    sortie du JIT). Distincte de non_max_suppression (Python pur, plus bas dans ce
+    fichier, ancien pipeline FIGHTERJET_DETECTION, AD-20, jamais modifiee) - 2 fonctions
+    independantes par design, pas de couplage entre les deux pipelines.
+
+    Necessaire depuis la decouverte du 2026-07-22 (audit_dataset_detection_jax.py,
+    voir deferred-work.md) : le rayon gaussien de la cible d'entrainement
+    (_gaussian_radius, detection_target_encoding.py, Story 7.1) grandit avec la taille
+    de la boite - un grand avion produit donc un plateau large de score eleve sur le
+    heatmap, pas un pic pointu. A detection_score_threshold abaisse (0.1, Story 8.3),
+    plusieurs pics voisins de ce plateau depassent desormais le seuil simultanement,
+    produisant plusieurs detections quasi identiques pour le meme objet - la premisse
+    de AD-9 ("la tete par point central n'a pas besoin de NMS") ne tient que pour un
+    objet de taille normale au pic etroit, pas pour ce cas.
+
+    boxes : (k,4) = (x1,y1,x2,y2), meme repere que les scores associes (indifferent au
+    repere exact, l'IoU est invariante par mise a l'echelle uniforme). scores : (k,).
+    Retourne un masque (k,) bool : True si ce candidat est garde (score le plus eleve
+    de son voisinage IoU>iou_threshold parmi les candidats non deja supprimes) - a
+    combiner (ET logique) avec valid_mask, jamais un remplacement.
+    """
+    k = boxes.shape[0]
+    order = jnp.argsort(-scores)  # indices tries par score decroissant
+
+    # Matrice d'IoU par paires (k,k), entierement vectorisee - k=20 (ou moins) rend ceci
+    # trivial (k^2 comparaisons), aucune boucle necessaire pour ce calcul.
+    x1 = jnp.maximum(boxes[:, None, 0], boxes[None, :, 0])
+    y1 = jnp.maximum(boxes[:, None, 1], boxes[None, :, 1])
+    x2 = jnp.minimum(boxes[:, None, 2], boxes[None, :, 2])
+    y2 = jnp.minimum(boxes[:, None, 3], boxes[None, :, 3])
+    inter = jnp.clip(x2 - x1, 0) * jnp.clip(y2 - y1, 0)
+    area = jnp.clip(boxes[:, 2] - boxes[:, 0], 0) * jnp.clip(boxes[:, 3] - boxes[:, 1], 0)
+    union = area[:, None] + area[None, :] - inter
+    iou_mat = jnp.where(union > 0, inter / union, 0.0)
+
+    # Reordonne lignes ET colonnes selon l'ordre de score decroissant : l'indice i dans
+    # la boucle correspond alors directement au i-eme meilleur score.
+    iou_sorted = iou_mat[order][:, order]
+
+    def body_fn(i, keep_sorted):
+        # Un candidat j (de rang j>i, donc de score <= celui de i) est supprime si i
+        # est lui-meme toujours garde ET que son IoU avec i depasse le seuil -
+        # suppression gloutonne standard, un seul passage, ordre de score decroissant.
+        is_kept_i = keep_sorted[i]
+        overlap = iou_sorted[i] > iou_threshold
+        suppress_j = is_kept_i & overlap & (jnp.arange(k) > i)
+        return keep_sorted & ~suppress_j
+
+    keep_sorted = jax.lax.fori_loop(0, k, body_fn, jnp.ones((k,), dtype=bool))
+
+    # Remet le masque dans l'ordre original des candidats (pas l'ordre trie par score).
+    keep = jnp.zeros((k,), dtype=bool).at[order].set(keep_sorted)
+    return keep
+
+
 def _differentiable_crop(image, boxes, crop_size=(128, 128)):
     """
     CROP JAX-natif (AD-11) : boites (repere image d'origine, Story 8.4) -> crops
@@ -471,6 +530,7 @@ def build_single_pass_predict_fn(
     classifier_checkpoint_path=None,
     resize_method="lanczos3",
     k=20,
+    nms_iou_threshold=None,
 ):
     """
     Assemblage final JAX Single-Pass (AD-16, Story 8.6) : RESIZE -> detecteur ->
@@ -493,7 +553,24 @@ def build_single_pass_predict_fn(
     independant de `k` (Story 7.1/7.2), donc changer `k` ne necessite AUCUN reentrainement.
     Discussion perf 2026-07-19 (voir deferred-work.md) : `k` est independant de
     `max_boxes` (dataset_configs.py, cote entrainement) malgre leur valeur par defaut
-    commune - les faire diverger est un choix explicite, pas automatique.
+    commune - les faire diverger est un choix explicite, pas automatique. Avec le NMS
+    ci-dessous (2026-07-22), prevoir `k` avec une marge au-dessus du nombre d'objets
+    reels attendus dans une scene - les doublons sur un grand objet (voir plus bas)
+    consomment des slots avant meme le nettoyage par NMS.
+
+    nms_iou_threshold : seuil de suppression (2026-07-22, voir deferred-work.md) - un
+    candidat est supprime si son IoU avec un candidat mieux score depasse ce seuil.
+    Necessaire car le rayon gaussien de la cible d'entrainement grandit avec la taille
+    de la boite (Story 7.1) : un grand objet produit un plateau large de score eleve,
+    pas un pic pointu, et plusieurs pics voisins peuvent desormais depasser
+    detection_score_threshold (abaisse a 0.1, Story 8.3) simultanement pour le meme
+    objet. Utilise `_non_max_suppression_jax` (JAX-natif, JIT-compatible), jamais
+    `non_max_suppression` (Python pur, AD-20, voir note plus bas).
+    Par defaut (`None`), lu depuis `get_dataset_config("JAX_DETECTOR")["nms_iou_threshold"]`
+    (AD-15 : seuil en config, jamais une constante privee dupliquee - meme discipline que
+    `detection_score_threshold`) - un appelant peut le surcharger explicitement (ex.
+    diagnostic A/B avec NMS desactive via une valeur >1.0), mais la source de verite pour
+    un usage normal reste `dataset_configs.py`.
 
     Contrat de sortie (AD-15/AC3) : {"boxes": (k,4), "classes": (k,), "class_scores":
     (k,), "detection_scores": (k,), "valid_mask": (k,)} - k slots fixes (20 par defaut,
@@ -503,10 +580,13 @@ def build_single_pass_predict_fn(
     valid_mask et non par mise a zero explicite). valid_mask reste la SEULE autorite pour
     distinguer un slot reel d'un slot vide (jamais deduit de la classification, ni du fait
     qu'une valeur soit ou non a zero) - un consommateur en aval NE DOIT PAS inferer la
-    validite d'un slot depuis ses valeurs numeriques.
+    validite d'un slot depuis ses valeurs numeriques. Depuis le 2026-07-22, un candidat
+    supprime par NMS est traite exactement comme un candidat sous le seuil de confiance :
+    valid_mask=False, valeurs numeriques non significatives.
 
     AD-20 : n'appelle jamais decode_segmentation_and_detect(_batch)/non_max_suppression
-    (ancien pipeline FIGHTERJET_DETECTION, non modifie, non touche par ce chemin).
+    (ancien pipeline FIGHTERJET_DETECTION, non modifie, non touche par ce chemin) - le
+    NMS de cette fonction utilise _non_max_suppression_jax, une fonction distincte.
     """
     config_det = get_dataset_config("JAX_DETECTOR")
     config_clf = get_dataset_config("FIGHTERJET_CLASSIFICATION")
@@ -523,6 +603,8 @@ def build_single_pass_predict_fn(
     # detection_score_threshold : uniquement depuis get_dataset_config("JAX_DETECTOR")
     # (Story 8.3) - absent du checkpoint, ne vient jamais de config_model.
     detection_score_threshold = config_det["detection_score_threshold"]
+    if nms_iou_threshold is None:
+        nms_iou_threshold = config_det["nms_iou_threshold"]
 
     detector_model, detector_vars, config_model = load_detection_model(detector_checkpoint_path)
     classifier_model, classifier_vars, clf_mean, clf_std = load_jax_model(
@@ -581,6 +663,16 @@ def build_single_pass_predict_fn(
         # le seuil.
         degenerate = (boxes_orig[..., 2] <= boxes_orig[..., 0]) | (boxes_orig[..., 3] <= boxes_orig[..., 1])
         valid_mask = valid_mask & ~degenerate
+
+        # NMS JAX-natif (2026-07-22, voir deferred-work.md) : supprime les doublons
+        # quasi identiques qu'un grand objet peut produire (plateau large de score eleve
+        # sur le heatmap, cf. docstring de build_single_pass_predict_fn). Calcule sur
+        # tous les k candidats (les invalides ne peuvent jamais supprimer un candidat
+        # valide de meilleur score, cf. docstring _non_max_suppression_jax) puis combine
+        # par ET logique - un candidat supprime devient invalide au meme titre qu'un
+        # candidat sous le seuil de confiance.
+        keep_nms = _non_max_suppression_jax(boxes_orig, scores, iou_threshold=nms_iou_threshold)
+        valid_mask = valid_mask & keep_nms
 
         # CROP + normalisation classifieur (Story 8.5) : geometrie depuis `image` brute,
         # normalisation distincte de celle du detecteur, appliquee uniquement ici.

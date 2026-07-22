@@ -487,6 +487,26 @@ class AircraftDetectorCenterNet(nn.Module):
         b = nn.Conv(256, (3, 3), kernel_dilation=(4, 4), padding="SAME")(b)
         b = nn.BatchNorm(use_running_average=not training)(b)
         b = nn.silu(b)
+
+        # Branche de contexte global (2026-07-22, complement a la dilatation ci-dessus -
+        # voir deferred-work.md et jax-single-pass.mmd). La dilatation agrandit le champ
+        # receptif de facon finie (~30%->~59%, mesure reelle : +18% sur HeatmapActivation,
+        # mais insuffisant sur les boites plein-cadre 70-100% de l'image). Le pooling
+        # global, lui, garantit par construction une couverture a 100% de l'image, quelle
+        # que soit la taille de l'objet - independant de tout empilement de couches.
+        # Moyenne spatiale globale du bottleneck -> (B,1,1,256), projetee (Conv 1x1,
+        # equivalent a une couche dense sur une entree 1x1) puis rediffusee a chaque
+        # position spatiale et fusionnee (concat) avec les features locales avant
+        # projection retour a 256 canaux.
+        context = jnp.mean(b, axis=(1, 2), keepdims=True)  # (B,1,1,256)
+        context = nn.Conv(256, (1, 1), padding="SAME")(context)
+        context = nn.silu(context)
+        context = jnp.broadcast_to(context, b.shape)  # (B,28,28,256)
+        b = jnp.concatenate([b, context], axis=-1)  # (B,28,28,512) : local + global
+        b = nn.Conv(256, (1, 1), padding="SAME")(b)  # projection retour a 256ch
+        b = nn.BatchNorm(use_running_average=not training)(b)
+        b = nn.silu(b)
+
         b = nn.Dropout(self.dropout_rate, deterministic=not training)(b)
 
         # --- DECODER --- (identique à AircraftDetectorUNet)

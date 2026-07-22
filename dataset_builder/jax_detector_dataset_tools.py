@@ -169,7 +169,7 @@ def _encode_and_append(img_crop, boxes, w, h, target_size, max_boxes, grayscale,
     sizes_list.append(targets[SIZE_KEY])
 
 
-def process_detection_dataset_v2(
+def process_detector_dataset(
     root_dirs: List[str],
     output_dir: str,
     split_name: str = "train",
@@ -364,7 +364,7 @@ if __name__ == "__main__":
     print("🚀 Démarrage de la préparation des données de DÉTECTION (JAX_DETECTOR, heatmap+taille)...")
 
     # 1. Traiter le Training Set
-    process_detection_dataset_v2(
+    process_detector_dataset(
         TRAIN_DIRS,
         OUTPUT_DIR,
         split_name="train",
@@ -386,7 +386,7 @@ if __name__ == "__main__":
     )
 
     # 2. Traiter le Val Set
-    process_detection_dataset_v2(
+    process_detector_dataset(
         VAL_DIRS,
         OUTPUT_DIR,
         split_name="val",

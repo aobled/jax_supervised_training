@@ -249,7 +249,7 @@
   - **Conséquence** : ce calcul s'applique maintenant à **tous** les datasets (`FIGHTERJET_CLASSIFICATION`, `FIGHTERJET_DETECTION`, `JAX_KEPLER`, `CIFAR10`, `JAX_DETECTOR`), pas seulement `JAX_DETECTOR` — les valeurs `decay_steps` codées en dur dans `dataset_configs.py` restent en place comme repli (contexte sans données réelles) mais ne pilotent plus le training tant que les chunks existent sur disque.
 - **[Correction]** Le `decay_steps` du bloc `gpu` de `JAX_DETECTOR` (`22845`, commentaire "97531 // 64 = 1523 steps/epoch") semble lui aussi calculé à partir d'un mauvais compte d'images : 97531 correspond au nombre d'images de `FIGHTERJET_DETECTION.detection/train` seul (voir note "exécution réelle Story 7.8" plus haut dans ce fichier), pas au vrai jeu d'entraînement `JAX_DETECTOR` (qui combine plusieurs sources + l'augmentation zoom). Non corrigé ici faute de mesure réelle sur GPU avec le dataset actuel — à vérifier/mesurer avant tout futur run GPU de JAX_DETECTOR.
 
-## Deferred from: doute sur zoom_augment_probability + hypothèse "champ réceptif CenterNet" (2026-07-19) — 🟡 IMPLÉMENTÉ, en attente de validation par un training réel
+## Deferred from: doute sur zoom_augment_probability + hypothèse "champ réceptif CenterNet" (2026-07-19) — 🟢 VALIDÉ (dilatation), 🔴 2ᵉ itération en cours (contexte global)
 
 ### Mise à jour 2026-07-19 (fin de journée) : décision prise, implémenté
 
@@ -307,9 +307,75 @@ Le décodeur (upsampling bilinéaire + skip connections) n'élargit pas ce maxim
 
 **Triangulation** : pistes 1 et 3 convergent vers la même conclusion (limite architecturale, pas un problème de données). Piste 2 (erreur de régression de taille empiriquement pire sur les grandes boîtes) resterait utile pour une triangulation complète mais n'est pas bloquante — la conviction est déjà jugée suffisante par l'utilisateur pour passer à la discussion de solution (voir prochaine entrée ou discussion de session).
 
+### Mise à jour 2026-07-21/22 : dilatation validée par un training réel propre, mais insuffisante seule
+
+**Run propre obtenu** (`decay_steps` correct, `.npz` régénérés sans `zoom_augment_probability`, batch=128, comparable directement à `v6`) :
+
+| | v6 (non-dilaté) | run dilaté (2026-07-21) |
+|---|---|---|
+| HeatmapActivation val | 0.1652 | **0.1954** (+18% relatif) |
+| Val Loss | 2.1596 | **1.9060** |
+| Steps/epoch | 761 | 764 (quasi identique — confirme la régénération propre) |
+
+Progrès réel et mesuré, attribuable à la dilatation (comparaison enfin propre, sans confusion). **Mais le problème ciblé persiste** : sur un répertoire de test réel, `JAX_DETECTOR` ne détecte des avions que sur 121/278 images, contre la quasi-totalité pour `FIGHTERJET_DETECTION` — cohérent avec le calcul : RF dilaté ≈59% reste sous ce qu'il faudrait pour couvrir un objet à 70-100% de la surface de l'image.
+
+**[✅ IMPLÉMENTÉ 2026-07-22, en attente de training] Branche de contexte global ajoutée en complément de la dilatation** (pas en remplacement — la dilatation reste en place, validée). Recommandation d'Amelia : plutôt que pousser encore la dilatation (rendements décroissants, risque de "gridding" sur une grille 28×28) ou ajouter un 4ᵉ étage de sous-échantillonnage (RF toujours fini, jamais garanti), une branche de contexte global (style PSPNet) **garantit par construction une couverture à 100% de l'image**, indépendamment de tout empilement de couches.
+
+- **Implémentation** (`model_library.py::AircraftDetectorCenterNet`, juste après le bottleneck dilaté) : `GlobalAvgPool` spatial du bottleneck → `(B,1,1,256)`, projeté (`Conv 1×1` + silu), rediffusé (`broadcast`) à chaque position `(B,28,28,256)`, concaténé avec les features locales `(B,28,28,512)`, puis reprojeté à 256ch (`Conv 1×1` + BatchNorm + silu) avant le décodeur. `AircraftDetectorUNet` non touché (AD-20).
+- **Vérifié** (pas de training réel) : tous les tests existants passent inchangés ; paramètres 1 927 907 → **2 125 539** (+197 632, cohérent avec l'estimation ~197k pour 2 convs 1×1 ajoutées) ; forward+backward sur données synthétiques → loss finie, gradients finis, formes de sortie inchangées (`heatmap` 224×224×1, `size` 224×224×2).
+- **`jax-single-pass.mmd`** mis à jour : la dilatation passe de 🔴 (proposition) à ✅ (validée), la branche de contexte global ajoutée comme 🔴 (proposition actuelle).
+- **Statut** : implémenté, en attente du prochain training réel pour validation (comme la dilatation avant elle).
+
 ## Deferred from: analyse reprise de checkpoint + LR schedule (2026-07-21)
 
 **Contexte** : question de l'utilisateur sur ce qui se passe au LR schedule si on reprend un training complet avec `epochs` augmenté (pour continuer un training qui n'aurait pas atteint de plateau). Vérifié empiriquement (mécanisme optax identique à `checkpoint_manager.py::resume_training`) : le LR **réellement appliqué** aux gradients reprend correctement à une valeur intermédiaire de la nouvelle courbe (ni le pic, ni gelé au plancher de l'ancien schedule) — parce que `resume_training` restaure `opt_state` tel quel (ligne 135), et c'est DANS `opt_state` qu'optax garde son propre compteur de step interne pour évaluer le schedule, indépendamment du `step` de Flax.
 
 - **[Bug identifié, non corrigé — accepté tel quel par l'utilisateur]** `trainer.py:494-495` calcule le LR **affiché**/loggé (`current_lr`, stocké dans `self.history['learning_rate']`) à partir de `self.state.step` — qui repart bien à 0 à chaque reprise (`checkpoint_manager.py::resume_training` ne restaure jamais `step`, seulement `opt_state`). Donc pendant un run repris : le LR réellement utilisé pour l'entraînement est correct (vérifié), mais le LR **affiché dans les logs et l'historique/courbes** est faux — il sous-estime la progression réelle sur le schedule (donne l'impression d'un LR proche du pic alors que le vrai LR appliqué est plus bas). N'affecte que l'affichage/les courbes de suivi, pas la qualité de l'entraînement lui-même.
   - **Statut** : non bloquant, laissé tel quel à la demande de l'utilisateur (2026-07-21) pendant qu'un training réel est en cours. Correctif simple si repris un jour : restaurer aussi `step` depuis le checkpoint dans `checkpoint_manager.py::resume_training` (actuellement seul `opt_state` l'est).
+
+## Deferred from: audit IoU JAX_DETECTOR v10 + diagnostic scores bruts (2026-07-22) — 🟢 RÉSOLU (seuil + NMS JAX-natif)
+
+**Contexte** : `tools/audit_dataset_detection_jax.py` lancé sur le checkpoint `v10` (dilatation + contexte global) contre les 120 102 images annotées de `detection/` — premier vrai chiffre comparable JAX_DETECTOR vs FIGHTERJET_DETECTION. Résultat global : **IoU moyen 0.5273, 60.2% GOOD (IoU≥0.5)** — contre >70% pour FIGHTERJET_DETECTION (chiffre utilisateur, `tools/audit_dataset_detection.py`, AD-20).
+
+- **Training v10 validé** (comparaison propre avec `v9`, même dataset, même discipline `decay_steps` automatique — 764 steps/epoch confirmés) : HeatmapActivation val 0.1954 (v9, dilatation seule) → **0.2022** (v10, + contexte global). Encore un vrai progrès, encore en légère progression à l'epoch 15.
+- **Croisement IoU × taille de boîte** (échantillon stratifié GOOD/POOR, ~6000 images, taille = plus grande boîte de l'image en % de la surface) : la chute n'est pas progressive avec la taille — c'est une falaise, exclusivement sur **70-100%** (mean_iou≈0.07-0.075, ~7-8% GOOD, contre 43-75% GOOD sur tous les autres buckets 0-70%).
+- **Diagnostic décisif** : `audit_dataset_detection_jax.py` étendu avec 2 colonnes (`max_raw_detection_score` = meilleur score parmi les 20 slots AVANT filtrage ; `best_raw_iou` = IoU du candidat le plus confiant contre la vérité terrain, même sous le seuil). Sur le bucket 70-100% : **81% de géométrie correcte** (`best_raw_iou≥0.5`) mais seulement **9.6%** dépassent le seuil de confiance actuel (0.2, médiane des scores bruts ≈0.108). **Ce n'est donc pas une limite de capacité géométrique (l'hypothèse champ réceptif reste valide comme diagnostic initial, mais dilatation+contexte global l'ont déjà largement résolue côté géométrie) — c'est un problème de calibration de confiance** : le réseau localise/dimensionne correctement les objets plein-cadre mais n'est jamais assez confiant pour les déclarer.
+- **✅ Fix appliqué (2026-07-22, sans réentraînement)** : `dataset_configs.py::JAX_DETECTOR.detection_score_threshold` abaissé de `0.2` à `0.1`. Cette valeur était déjà documentée comme vérifiée sans faux positif (diagnostic `threshold_sensitivity`, `archive/`, antérieur) — 0.2 n'était qu'une marge de prudence non nécessaire. Simulation sur les 120 102 images de l'audit (estimation basse, ne capture que le meilleur candidat par score, pas les 20 slots) : **60.2% → ~76.9% GOOD estimé** — potentiellement suffisant pour combler l'essentiel de l'écart avec FIGHTERJET_DETECTION, sans toucher à l'architecture.
+- **✅ Confirmé par ré-audit réel (2026-07-22)** : `detection_score_threshold=0.1`, même checkpoint `v10`, 120 102 images. **IoU moyen 0.5273→0.7058, GOOD 60.2%→82.9%** — au-dessus de l'estimation basse (76.9%), et au-dessus du repère FIGHTERJET_DETECTION (>70%, chiffre utilisateur).
+
+### Mise à jour 2026-07-22 (suite) : faux positifs après abaissement du seuil — NMS JAX-natif ajouté
+
+Question légitime de l'utilisateur : abaisser le seuil à 0.1 a-t-il fait exploser les faux positifs ? `audit_dataset_detection_jax.py` étendu avec `count_unmatched_predictions` (proxy de précision : combien de prédictions valides ne correspondent à AUCUNE vraie boîte). Résultat réel (120 102 images) : **23.4% de faux positifs (66 437/283 452 prédictions)**.
+
+- **Diagnostic croisé par taille de boîte** : contrairement à l'intuition initiale de l'utilisateur (doublons sur les grands avions), le taux de faux positifs le plus élevé est sur le bucket **0-15%** (34.5%, scènes multi-avions denses, 3.18 vraies boîtes/image en moyenne) — pas sur 70-100% (9.3%, plutôt bas). **Mais** en isolant précisément les images à 1 seul avion réel très grand (≥70%, 743 images) : 28.3% ont 2 détections ou plus (jusqu'à 15) sur ce seul avion — le phénomène observé à l'œil par l'utilisateur est réel, mais localisé, pas le principal contributeur agrégé.
+- **Cause mécanique identifiée** : `_gaussian_radius` (`detection_target_encoding.py`, Story 7.1) — le rayon de la cible d'entraînement grandit avec la taille de la boîte. Un grand avion produit donc un plateau large de score élevé sur le heatmap (pas un pic pointu) ; à seuil abaissé, plusieurs pics voisins de ce plateau dépassent maintenant le seuil simultanément pour le même objet. La prémisse d'AD-9 ("la tête par point central n'a pas besoin de NMS") ne tient que pour un objet de taille normale au pic étroit.
+- **✅ Implémenté** : `inference_utils.py::_non_max_suppression_jax` — NMS **JAX-natif** (`jax.lax.fori_loop` sur k=`boxes.shape[0]` itérations fixes, aucun branchement dépendant des données), pour rester dans le principe "un seul JIT de bout en bout" du Single-Pass (question posée explicitement par l'utilisateur — la fonction `non_max_suppression` existante est en Python pur, AD-20, utilisée seulement par l'ancien pipeline, jamais réutilisable ici sans casser le JIT). Fonction distincte et non couplée à l'ancienne. Câblée dans `build_single_pass_predict_fn` juste après le filtre de boîtes dégénérées, combinée par ET logique à `valid_mask`. Nouveau paramètre `nms_iou_threshold=0.5`.
+- **Vérifié** : tests existants inchangés passent (`test_single_pass_predict_fn.py`, `test_rescale_boxes.py`, `test_detector_inference_composition.py`, `test_peak_extraction_topk.py`) ; nouveau test unitaire de `_non_max_suppression_jax` (suppression correcte, JIT-compatible via `jax.jit`, cas limites) ; test de bout en bout sur images réelles de `test_media/single_full_size_aircraft/` — un vrai cas de doublon nettoyé (2→1 détections), jamais d'augmentation du nombre de détections.
+- **Effet de bord à surveiller** : avec le NMS, `MAX_BOXES`/`k` (`build_single_pass_predict_fn`) doit être fixé avec une marge au-dessus du nombre d'objets réels attendus dans une scène — les doublons consomment des slots du Top-K **avant** le nettoyage NMS, donc un `k` trop serré peut encore faire disparaître un vrai objet distinct au profit des doublons d'un autre. Documenté dans le docstring de `build_single_pass_predict_fn`.
+- **`jax-single-pass.mmd`** mis à jour : contexte global marqué validé (✅, v10), nouveau nœud NMS inséré dans le sous-graphe `DETECT` entre `RESCALE` et `CROP`.
+### Mise à jour 2026-07-22 (suite 2) : audit complet post-NMS — doublons résolus, FP denses intacts (attendu)
+
+Ré-audit complet réel (120 102 images, même checkpoint `v10`, NMS actif `nms_iou_threshold=0.5`) :
+
+| | Sans NMS | Avec NMS |
+|---|---|---|
+| Prédictions totales | 283 452 | 234 433 (-17,3%) |
+| Faux positifs (nb) | 66 437 | 59 995 (-9,7%) |
+| Taux de FP | 23,4% | 25,6% |
+| IoU moyen | 0,7058 | 0,7003 |
+| GOOD (IoU≥0,5) | 82,9% | 82,5% |
+
+- **Le taux de FP monte alors que le nombre absolu de FP baisse — cohérent, pas une régression.** Sur les 49 019 prédictions supprimées par le NMS, seules 6 442 étaient des faux positifs ; les ~42 577 autres correspondaient bien à une vraie boîte (doublons corrects sur le même objet — exactement le phénomène observé à l'œil par l'utilisateur sur les gros avions). Confirmé via le ratio global prédictions/vraies-boîtes (vérité terrain identique entre les deux runs, 209 444 boîtes) : **1,353 → 1,119** — le modèle produit désormais quasiment 1 prédiction par objet réel.
+- **Croisement par densité de scène** (`num_true_boxes` par image, run avec NMS) : le taux de FP reste dominé par les scènes multi-avions (2-3 boîtes : 30,1% ; 4-6 : 26,6% ; 7+ : 21,5%) plutôt que par l'image à 1 seul avion (24,2%, en baisse grâce au nettoyage des doublons). Confirme que le NMS n'avait mécaniquement pas de prise sur ce problème : un faux positif isolé dans une zone vide ne chevauche généralement aucune autre boîte, donc rien à supprimer.
+- **Légère baisse d'IoU moyen/GOOD (0,7058→0,7003 / 82,9%→82,5%)** : le NMS conserve la boîte au score de confiance le plus élevé, pas nécessairement celle au meilleur IoU — dans de rares doublons, la boîte supprimée était la mieux localisée des deux.
+- **Conclusion** : NMS validé sur son objectif (doublons sur gros objets, cause mécanique `_gaussian_radius`/plateau large) sans effet de bord notable sur la qualité globale. Le problème des faux positifs en scènes denses/petits objets (bucket 0-15%, déjà identifié avant le NMS comme dominant) reste ouvert et inchangé — attendu, car de nature différente (confusion de détection, pas duplication).
+- **Statut** : ✅ clos pour le volet NMS. Le volet FP-scènes-denses reste un chantier séparé, non entamé (voir aussi le diagnostic de calibration de confiance ci-dessus, qui pourrait partager une cause racine — non vérifié).
+
+### Mise à jour 2026-07-22 (suite 3) : nms_iou_threshold exposé en config (AD-15)
+
+`nms_iou_threshold` (jusque-là un simple paramètre Python de `build_single_pass_predict_fn`, défaut `0.5` en dur) déplacé vers `dataset_configs.py::JAX_DETECTOR`, même discipline que `detection_score_threshold` (AD-15 : seuil en config, jamais une constante privée dupliquée) — pour permettre à l'utilisateur de le retoucher sans modifier le code pendant ses tests vidéo.
+
+- `inference_utils.py::build_single_pass_predict_fn` : `nms_iou_threshold=None` par défaut, résolu depuis `config_det["nms_iou_threshold"]` si non fourni — la possibilité de surcharge explicite est conservée (utile pour les diagnostics A/B, ex. `nms_iou_threshold=1.01` pour désactiver le NMS sans y toucher).
+- Câblé explicitement (constante module + passage à `build_single_pass_predict_fn`) dans les 3 consommateurs qui construisent un `predict_fn` JAX_DETECTOR : `tools/audit_dataset_detection_jax.py`, `bounding_boxes_with_classification_from_video_generation.py`, `tools/bounding_boxes_with_classification_from_images_generation.py` (commentaire AD-9 obsolète corrigé au passage — JAX_DETECTOR a désormais un NMS explicite pour les objets plein-cadre).
+- **Le training n'est pas concerné** : l'entraînement détection ne construit jamais de `predict_fn`/NMS, il optimise directement heatmap+taille (`CenterNetDetectionStrategy`) — le NMS est un mécanisme d'inférence pure, sans lien avec la fonction de perte.
+- Vérifié : suite de tests existante inchangée (`test_single_pass_predict_fn.py`, `test_rescale_boxes.py`, `test_detector_inference_composition.py`, `test_peak_extraction_topk.py`, `test_jax_detector_config.py`) toujours au vert.

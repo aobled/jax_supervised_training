@@ -5,7 +5,7 @@ flowchart TB
         CLF --> PKL["classifier.pkl"]
     end
 
-    subgraph ARCH["Architecture interne détecteur — AircraftDetectorCenterNet<br/>PROPOSITION 2026-07-19 : bottleneck dilaté (voir deferred-work.md, hypothèse champ réceptif)"]
+    subgraph ARCH["Architecture interne détecteur — AircraftDetectorCenterNet<br/>2026-07-19 bottleneck dilaté (validé, +18% HeatmapActivation) +<br/>2026-07-22 branche de contexte global (validée, +3.5% de plus, v10) — voir deferred-work.md"]
         A0["Input 224×224×1"]
         A0 --> B1A["Conv 3×3 ×2 (32ch)<br/>224×224"]
         B1A --> B1P["MaxPool 2×2<br/>→ 112×112"]
@@ -13,8 +13,13 @@ flowchart TB
         B2A --> B2P["MaxPool 2×2<br/>→ 56×56"]
         B2P --> B3A["Conv 3×3 ×2 (128ch)<br/>56×56"]
         B3A --> B3P["MaxPool 2×2<br/>→ 28×28"]
-        B3P --> BOT["🔴 Bottleneck DILATÉ (256ch), 28×28<br/>Conv 3×3 dilation=2 puis dilation=4<br/>RF théorique ≈132px/224 (~59%)<br/>vs ≈68px/224 (~30%) architecture actuelle<br/>(non-dilatée, RF insuffisant pour<br/>les boîtes plein-cadre, ~47% du dataset)"]
-        BOT --> U1["Up1 : resize→56×56 + concat skip B3A<br/>Conv 3×3 ×2 (128ch)"]
+        B3P --> BOT["✅ Bottleneck DILATÉ (256ch), 28×28<br/>Conv 3×3 dilation=2 puis dilation=4<br/>RF théorique ≈132px/224 (~59%)<br/>vs ≈68px/224 (~30%) sans dilatation<br/>(validé run réel : 0.1652→0.1954<br/>HeatmapActivation, dataset propre)"]
+        BOT --> GAP["✅ Contexte global (validé v10)<br/>GlobalAvgPool spatial → (B,1,1,256)<br/>Conv 1×1 (proj.) + silu"]
+        GAP --> BCAST["Rediffusion → (B,28,28,256)<br/>(broadcast, même valeur partout)"]
+        BOT --> CONCAT["Concat local+global<br/>(B,28,28,512)"]
+        BCAST --> CONCAT
+        CONCAT --> PROJ["Conv 1×1 → 256ch<br/>+ BatchNorm + silu<br/>0.1954→0.2022 HeatmapActivation (v9→v10)"]
+        PROJ --> U1["Up1 : resize→56×56 + concat skip B3A<br/>Conv 3×3 ×2 (128ch)"]
         U1 --> U2["Up2 : resize→112×112 + concat skip B2A<br/>Conv 3×3 ×2 (64ch)"]
         U2 --> U3["Up3 : resize→224×224 + concat skip B1A<br/>Conv 3×3 ×2 (32ch)"]
         U3 --> HEADS["Têtes parallèles, 224×224 :<br/>Heatmap 224×224×1 (sigmoid)<br/>Size 224×224×2 (linéaire, échelle log)"]
@@ -37,13 +42,14 @@ flowchart TB
         HM --> PEAK["Extraction pics JAX native<br/>(max-pool peak-NMS,<br/>jax.lax.reduce_window)"]
         PEAK --> TOPK["Top-K = 20 boxes (repère 224x224)<br/>+ scores détection<br/>+ masque slots invalides"]
         TOPK --> RESCALE["Rescale déterministe fixe<br/>224x224 → repère 1920x1080<br/>(symétrique du RESIZE d'entrée —<br/>même principe que le resize du<br/>masque vers l'original aujourd'hui,<br/>inference_utils.py:330)"]
+        RESCALE --> NMS["✅ NMS JAX-natif (2026-07-22)<br/>jax.lax.fori_loop, k fixe, JIT-compatible<br/>Supprime les doublons d'un grand objet<br/>(plateau large de score, rayon gaussien<br/>proportionnel à la taille de la boîte)<br/>Combine par ET logique avec valid_mask"]
         IMG --> CROP["Crop&Resize JAX<br/>(map_coordinates, vmap sur 20 slots)"]
-        RESCALE --> CROP
+        NMS --> CROP
         CROP --> BATCH["Batch 20x128x128"]
         BATCH --> CLFCALL["ClassifierNet appelé (gelé)"]
         PKL -.poids entraînés.-> CLFCALL
         CLFCALL --> CLSOUT["classes + scores classification<br/>(20 slots, toujours remplis —<br/>softmax ne retourne jamais 'rien')"]
-        RESCALE -."boxes (repère original) + scores<br/>détection + masque validité".-> OUT
+        NMS -."boxes (repère original) + scores<br/>détection + masque validité (post-NMS)".-> OUT
         CLSOUT --> OUT["Sortie finale (20 slots, taille fixe) :<br/>boxes · classes · class_scores ·<br/>detection_scores · valid_mask<br/>(le masque, pas la prédiction,<br/>indique les slots vides)"]
     end
 

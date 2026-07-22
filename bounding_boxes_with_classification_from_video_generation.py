@@ -58,7 +58,7 @@ BATCH_SIZE = 8                         # Batch single-pass (réduire si OOM GPU,
 # selon le nombre réel d'avions attendus (discussion perf 2026-07-19, voir deferred-work.md) :
 # plus petit = crop+classification plus rapide, mais toute frame avec plus de MAX_BOXES avions
 # réels en perdrait silencieusement l'excédent (uniquement les pics de heatmap les moins confiants).
-MAX_BOXES = 4
+MAX_BOXES = 13
 
 #VIDEO_PATH = "/home/aobled/Downloads/testvid.mp4"
 #TARGET_CLASS_LIST = ["f15", "f22", "b1b", "b2", "b52", "a10", "f16"]
@@ -68,8 +68,12 @@ MAX_BOXES = 4
 #TARGET_CLASS_LIST = ["f35", "a10", "f22", "f16", "c130"]
 #VIDEO_PATH = "/home/aobled/Downloads/DEATH VALLEY - THE LAST SHOW OF FORCE  (4K).mp4"
 #TARGET_CLASS_LIST = ["f18", "f15", "f16", "f35", "a10", "c17", "f22","harrier"]
-VIDEO_PATH = "/media/aobled/Elements/Python/videos/Awesome F-22 Raptor Tail slide in Full control.mp4"
-TARGET_CLASS_LIST = ["f22"]
+#VIDEO_PATH = "/media/aobled/Elements/Python/videos/Awesome F-22 Raptor Tail slide in Full control.mp4"
+#TARGET_CLASS_LIST = ["f22"]
+
+VIDEO_PATH = "/media/aobled/Elements/Python/videos/flypast over Paris for Bastille Day.mp4"
+TARGET_CLASS_LIST = ["alphajet", "rafale", "mirage2000", "f35", "f16", "f18", "hawkeye", "a400m"]
+
 
 
 # 3. Chargement de la config dataset
@@ -87,6 +91,13 @@ except Exception as e:
 # build_single_pass_predict_fn) - recupere ici uniquement pour recalibrer la colorimetrie
 # du rendu heatmap (voir _remap_score_for_colormap), sans dupliquer sa valeur en dur.
 DETECTION_SCORE_THRESHOLD = get_dataset_config("JAX_DETECTOR")["detection_score_threshold"]
+
+# Seuil IoU du NMS JAX-natif (meme source que celui applique dans
+# build_single_pass_predict_fn, 2026-07-22, voir deferred-work.md) - recupere ici pour
+# etre passe explicitement a la construction de predict_fn ci-dessous, meme discipline
+# que MAX_BOXES : un choix d'inference reglable sans reentrainement, a adapter au cas
+# par cas (scenes tres denses -> abaisser ; sur-suppression suspectee -> relever).
+NMS_IOU_THRESHOLD = get_dataset_config("JAX_DETECTOR")["nms_iou_threshold"]
 
 
 
@@ -463,6 +474,7 @@ if __name__ == "__main__":
         detector_checkpoint_path=DETECTOR_CHECKPOINT_PATH,
         classifier_checkpoint_path=CHECKPOINT_PATH,
         k=MAX_BOXES,
+        nms_iou_threshold=NMS_IOU_THRESHOLD,
     )
 
     print("✅ Modèles chargés.")
