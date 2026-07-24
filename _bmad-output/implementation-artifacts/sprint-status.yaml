@@ -206,17 +206,17 @@ action_items:
     owner: "Aymeric"
     status: done
   - epic: "quickdev-2026-07-22"
-    action: "Inventorier les ~56 fichiers .py (hors archive/), valider leur utilite un par un avec Aymeric, archiver les scripts de diagnostic ponctuels obsoletes"
+    action: "Inventorier les ~56 fichiers .py (hors archive/), valider leur utilite un par un avec Aymeric, archiver les scripts de diagnostic ponctuels obsoletes - voir quickdev-2026-07-22-file-inventory.md"
     owner: "Aymeric + Claude"
-    status: open
+    status: in-progress
   - epic: "quickdev-2026-07-22"
-    action: "Reperer les methodes dupliquees/copier-collees entre programmes avant toute consolidation (ne pas refactoriser a l'aveugle)"
+    action: "Reperer les methodes dupliquees/copier-collees entre programmes avant toute consolidation (ne pas refactoriser a l'aveugle) - identification faite, voir quickdev-2026-07-22-training-core-quality-audit.md. Consolidation elle-meme laissee en backlog (decision Aymeric 2026-07-22, rien d'urgent)"
     owner: "Aymeric + Claude"
-    status: open
+    status: backlog
   - epic: "quickdev-2026-07-22"
-    action: "Session avec Winston (architecte) sur l'optimisation/reduction du modele detecteur video (taille, latence) sans perdre le gain plein-cadre valide ce cycle"
+    action: "Session avec Winston (architecte) sur l'optimisation/reduction du modele detecteur video (taille, latence) sans perdre le gain plein-cadre valide ce cycle - fait, deprioritise (debit video deja suffisant a 27-30fps, pas d'urgence). Winston a enchaine sur l'audit qualite/genericite du noyau d'entrainement a la place (voir item ci-dessus)"
     owner: "Winston + Aymeric"
-    status: open
+    status: done
   - epic: "quickdev-2026-07-22"
     action: "Verifier explicitement toute affirmation technique (attribution de cause, estimation chiffree) contre le log/la source avant de l'enoncer, pas seulement apres correction utilisateur - 2 occurrences ce cycle (v8 checkpoint, +15%/+30%)"
     owner: "Process (Claude)"
